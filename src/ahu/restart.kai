@@ -1,4 +1,8 @@
-# src/restart.kai — ahu Layer 3: restart helpers.
+# src/ahu/restart.kai — ahu Layer 3: restart helpers.
+# Imported by user code as `import ahu.restart`; functions are
+# accessed dotted (`restart.with_restart(...)`,
+# `restart.default_limit()`); types stay bare
+# (`RestartPolicy`, `RestartLimit`, `Outcome`).
 #
 # `with_restart(policy, limit, body)` spawns `body` in a child
 # fiber and watches its termination via kaikai's trap-exit

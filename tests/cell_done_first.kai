@@ -1,7 +1,7 @@
 # tests/cell_done_first.kai — Cell exits on the first message.
 #
 # Coverage: the Done path of cell_loop's match. The cell receives
-# exactly one message, the step function returns cell_done(), the
+# exactly one message, the step function returns cell.cell_done(), the
 # dispatcher exits, and the fiber returns Unit. No Continue
 # iterations.
 #
@@ -12,7 +12,7 @@
 
 import spawn
 import actor
-import cell
+import ahu.cell
 
 type SimpleMsg = Tick(Pid[SimpleMsg]) | Ack
 
@@ -22,9 +22,9 @@ fn step_done_first(state: Int, msg: SimpleMsg)
     Tick(reply_to) -> {
       Stdout.print("cell: tick received")
       Actor.send(reply_to, Ack)
-      cell_done()
+      cell.cell_done()
     }
-    Ack -> keep(state)
+    Ack -> cell.keep(state)
   }
 
 fn driver(me: Pid[SimpleMsg], cell_pid: Pid[SimpleMsg])
@@ -39,7 +39,7 @@ fn driver(me: Pid[SimpleMsg], cell_pid: Pid[SimpleMsg])
 
 fn run() : Unit / Spawn + Console + Actor[SimpleMsg] = {
   let me = Actor.self()
-  with_cell(0, step_done_first, (cell_pid) => driver(me, cell_pid))
+  cell.with_cell(0, step_done_first, (cell_pid) => driver(me, cell_pid))
 }
 
 fn main() : Int / Console + Spawn = {
