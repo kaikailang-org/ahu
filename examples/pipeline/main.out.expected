@@ -1,0 +1,16 @@
+square: 1 → 1
+square: 2 → 4
+square: 3 → 9
+square: 4 → 16
+square: 5 → 25
+square: 6 → 36
+square: 7 → 49
+square: 8 → 64
+square: 9 → 81
+square: 10 → 100
+label: 4
+label: 16
+label: 36
+label: 64
+label: 100
+sum of even squares from 1..10 = 220

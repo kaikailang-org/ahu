@@ -1,0 +1,69 @@
+# examples/pipeline/main.kai — Layer 1 ETL pipeline demo.
+#
+# An end-to-end data processing pipeline using kaikai stdlib's
+# core.list higher-order helpers + the [a..b] / | / |> language
+# sugars. ahu's Layer 1 contribution is convention + this kind
+# of fixture; there is no `src/ahu/stream.kai` because the
+# composition reads cleanly from the canonical kaikai surface.
+#
+# Pipeline stages:
+#
+#   [1..10]                  source: integers 1 to 10
+#   | square                 map-pipe: square each (effectful — prints)
+#   |> list.filter(_, even)  filter the even ones
+#   |> list.map(_, label)    label each (effectful — prints)
+#   |> list.foldl(_, 0, add) reduce to a sum
+#
+# Demonstrates:
+#
+#   - `[a..b]` range list literal as the pipeline source.
+#   - `|` map-pipe operator threading a list through an
+#     effectful callback.
+#   - `|>` apply-pipe operator threading the resulting list
+#     through pure and effectful list operations.
+#   - Effect-row propagation: Console flows out through the
+#     pipeline's row variable, lands cleanly in `main`.
+#
+# Expected output:
+#   square: 1 → 1
+#   square: 2 → 4
+#   square: 3 → 9
+#   square: 4 → 16
+#   square: 5 → 25
+#   square: 6 → 36
+#   square: 7 → 49
+#   square: 8 → 64
+#   square: 9 → 81
+#   square: 10 → 100
+#   label: 4
+#   label: 16
+#   label: 36
+#   label: 64
+#   label: 100
+#   sum of even squares from 1..10 = 220
+
+fn square(n: Int) : Int / Console = {
+  let r = n * n
+  Stdout.print("square: " ++ int_to_string(n) ++ " → " ++ int_to_string(r))
+  r
+}
+
+fn even(n: Int) : Bool = n % 2 == 0
+
+fn label(n: Int) : Int / Console = {
+  Stdout.print("label: " ++ int_to_string(n))
+  n
+}
+
+fn add(acc: Int, n: Int) : Int = acc + n
+
+fn main() : Int / Console = {
+  # kaikai's `|` and `|>` do not continue across newlines, so
+  # the pipeline is split into named intermediate values.
+  let squares = [1..10] | square
+  let evens   = list.filter(squares, even)
+  let labeled = evens | label
+  let total   = list.foldl(labeled, 0, add)
+  Stdout.print("sum of even squares from 1..10 = " ++ int_to_string(total))
+  0
+}

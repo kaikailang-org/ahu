@@ -1,0 +1,149 @@
+# examples/echo/main.kai — ahu-Tongariki MVP integration demo.
+#
+# A TCP echo server that combines all four ahu layers + kaikai
+# stdlib primitives:
+#
+#   Layer 1 — pipeline pattern: each connection's input/output
+#             is conceptually a stream; v1 uses an explicit
+#             tail-recursive loop because lazy/unbounded
+#             sources need post-Tongariki kaikai support.
+#   Layer 2 — cells: per-session counter cell tracks frame
+#             count, prints summary on disconnect.
+#   Layer 3 — restart helpers: the listener loop is wrapped
+#             in `with_restart(Permanent, ...)` so an accept
+#             error restarts the listener.
+#   Layer 4 — run_app bootstrap: SIGINT/SIGTERM trigger
+#             graceful shutdown via Signal effect.
+#
+# The kaikai primitives:
+#   `NetTcp.listen / accept / send / recv / close` — kaikai 0.33+
+#   `Signal.on / await / off` — kaikai 0.36+ (issue #107)
+#   `fiber_set_trap_exit / Link.link` — kaikai m8.x scheduler
+#
+# Test it locally:
+#   $ make build/echo
+#   $ build/echo &
+#   $ echo "hello" | nc -q1 127.0.0.1 8080
+#   hello
+#   $ kill %1   # SIGTERM, default disposition; abrupt exit
+#
+# v1 limitations (will lift as kaikai m8.x reactor lands):
+#   - One connection at a time (NetTcp.accept blocks the OS
+#     thread; concurrent multi-connection handling waits on
+#     kaikai post-m8.x reactor work).
+#   - 1024-byte recv buffer; longer payloads chunked across
+#     receive calls.
+#   - No graceful Ctrl-C handling. ahu's `run_app` is a v1
+#     placeholder (see `src/ahu/app.kai` header); Signal-based
+#     shutdown that lets cell `Cancel` handlers run waits on
+#     the reactor. Today: SIGINT/SIGTERM kill the process
+#     abruptly.
+
+import spawn
+import actor
+import net.tcp
+import ahu.cell
+import ahu.restart
+import ahu.app
+
+type SessionMsg = FrameDone | EndSession
+
+# Per-session counter cell. Counts frames echoed; prints a
+# summary line and exits when the connection closes.
+fn session_step(count: Int, msg: SessionMsg)
+  : StepResult[Int] / Actor[SessionMsg] + Console
+= match msg {
+    FrameDone  -> cell.keep(count + 1)
+    EndSession -> {
+      Stdout.print("echo: session ended after " ++ int_to_string(count) ++ " frames")
+      cell.cell_done()
+    }
+  }
+
+# Read one buffer, echo it back, increment session counter,
+# recurse. Empty read = remote close → tell session to end.
+fn echo_loop(client: Conn, session: Pid[SessionMsg])
+  : Unit / NetTcp + Console + Actor[SessionMsg]
+= match NetTcp.recv(client, 1024) {
+    Ok(bytes) -> {
+      let n = list_length(bytes)
+      if n == 0 {
+        Actor.send(session, EndSession)
+      } else {
+        match NetTcp.send(client, bytes) {
+          Ok(_)  -> {
+            Actor.send(session, FrameDone)
+            echo_loop(client, session)
+          }
+          Err(e) -> {
+            Stdout.print("echo: send err: " ++ e)
+            Actor.send(session, EndSession)
+          }
+        }
+      }
+    }
+    Err(e) -> {
+      Stdout.print("echo: recv err: " ++ e)
+      Actor.send(session, EndSession)
+    }
+  }
+
+# Handle one accepted connection. Spawns a session cell, runs
+# the echo loop against it, closes the socket on exit.
+fn handle_connection(client: Conn)
+  : Unit / NetTcp + Console + Spawn + Actor[SessionMsg]
+= {
+  Stdout.print("echo: client connected")
+  cell.with_cell(0, session_step, (session) => echo_loop(client, session))
+  let _ = NetTcp.close(client)
+}
+
+# Tail-recursive accept loop. After handling one connection
+# (sequentially under v1's blocking accept), recurse for the
+# next. Errors are logged and the loop continues.
+fn accept_loop(listener: Listener)
+  : Unit / NetTcp + Console + Spawn + Actor[SessionMsg]
+= match NetTcp.accept(listener) {
+    Ok(client) -> {
+      handle_connection(client)
+      accept_loop(listener)
+    }
+    Err(e) -> {
+      Stdout.print("echo: accept err: " ++ e)
+    }
+  }
+
+# Listener body. Linked to the supervisor for trap-exit
+# observability. Opens a SessionMsg mailbox so accept_loop can
+# Actor.send to per-session cells.
+fn listener_body(parent: Pid[String])
+  : Unit / Actor[String] + Link + NetTcp + Console + Spawn
+= {
+  Link.link(parent)
+  match NetTcp.listen("127.0.0.1", 8080) {
+    Ok(l) -> {
+      Stdout.print("echo: listening on 127.0.0.1:8080")
+      with_mailbox { accept_loop(l) }
+    }
+    Err(e) -> {
+      Stdout.print("echo: listen err: " ++ e)
+    }
+  }
+}
+
+# Root: open a String mailbox for trap-exit, wrap the listener
+# in a Permanent-policy restart so accept failures restart the
+# loop instead of killing the server.
+fn root() : Unit / Spawn + Link + Cancel + NetTcp + Console = {
+  with_mailbox {
+    restart.with_restart(Permanent, restart.default_limit(), listener_body)
+  }
+}
+
+# Top: hand root to run_app. v1 is a thin pass-through; future
+# kaikai reactor work upgrades it to Signal-based graceful
+# shutdown without API change.
+fn main() : Int / Spawn + Cancel + Console + NetTcp + Link = {
+  app.run_app(root)
+  0
+}
