@@ -8,6 +8,33 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `src/restart.kai` — Layer 3 implementation. `RestartPolicy`
+  (`Permanent` / `Transient` / `Temporary`), `RestartLimit(Int)`,
+  `Outcome` (`Completed` / `Escalated`), `default_limit`, and
+  `with_restart(policy, limit, body) : Outcome / ...`. Builds
+  on kaikai's trap-exit semantics: the supervisor sets
+  `fiber_set_trap_exit(true)`, spawns the body in a child
+  fiber that links back via `Link.link(parent)`, and observes
+  termination through the supervisor's String mailbox.
+- `tests/restart_temporary_crash.kai` — fixture covering
+  `Temporary` policy + body that crashes once → no restart,
+  outcome `Completed`. Exercises trap-exit "Crashed"
+  delivery.
+- `tests/restart_transient_normal.kai` — fixture covering
+  `Transient` policy + body that exits Normal → no restart,
+  outcome `Completed`. Exercises trap-exit "Normal" delivery
+  via the same channel.
+- `tests/restart_intensity_escalate.kai` — fixture covering
+  the intensity-exceeded path. Permanent policy + body that
+  always crashes + intensity=2 → 2 body runs, then outcome
+  `Escalated`. Verifies the limit-counting and the clean
+  return-value escalation contract.
+- `Makefile`: pattern rules now depend on every file under
+  `src/*.kai` so adding new ahu modules automatically
+  invalidates dependent fixtures.
+
+### Changed
+
 - `src/cell.kai` — Layer 2 implementation. `StepResult[State]` sum
   type (`Continue` / `Done`), `keep` / `cell_done` constructors,
   `with_cell(initial, step, body)` constructor, and the internal
