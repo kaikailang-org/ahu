@@ -1,0 +1,34 @@
+# tests/restart_temporary_crash.kai — Temporary policy + crash → Completed (no restart).
+#
+# Coverage: the Temporary policy of with_restart, exercised
+# against a body that calls Cancel.raise() inside its own fiber.
+# The trap-exit path delivers "Crashed" to the supervisor;
+# Temporary returns Completed without a second spawn.
+#
+# Verifies the cross-layer integration: trap-exit from a child
+# fiber, observed via the supervisor's String mailbox, with a
+# policy that does not retry.
+
+import actor
+import spawn
+import restart
+
+fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = {
+  Link.link(parent)
+  Stdout.print("body: ran (will crash)")
+  Cancel.raise()
+}
+
+fn print_outcome(o: Outcome) : Unit / Console = match o {
+  Completed -> Stdout.print("supervisor: Completed")
+  Escalated -> Stdout.print("supervisor: Escalated")
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
+  print_outcome(with_restart(Temporary, default_limit(), body))
+}
+
+fn main() : Int / Console + Spawn + Link + Cancel = {
+  with_mailbox { run() }
+  0
+}

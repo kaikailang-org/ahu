@@ -1,0 +1,97 @@
+# src/restart.kai — ahu Layer 3: restart helpers.
+#
+# `with_restart(policy, limit, body)` spawns `body` in a child
+# fiber and watches its termination via kaikai's trap-exit
+# mechanism (`docs/actors.md` §*Trap-exit semantics*). When the
+# child terminates, the supervisor's mailbox receives "Normal"
+# or "Crashed"; the policy decides whether to spawn the body
+# again or return.
+#
+# Why use trap-exit and not just fiber_await + try: a body that
+# panics inside its own fiber cannot be caught by the parent's
+# try block — panics abort the calling fiber. trap-exit
+# converts a child fiber's termination into a message on the
+# parent's mailbox, which is observable cleanly. This is the
+# kaikai pattern documented in `examples/effects/m8_trap_exit.kai`.
+#
+# Constraints inherited from the kaikai trap-exit v1:
+#
+#   - The supervisor fiber MUST be inside a `with_mailbox` of
+#     type `String` (kaikai v1 ships String specifically; a
+#     richer ExitReason payload is upstream future work).
+#   - The body MUST install its own `with_mailbox` so its pid is
+#     materialised and trap-exit can route the termination
+#     message back to the supervisor.
+#   - The body MUST `Link.link(parent)` so the runtime knows to
+#     route the body's termination through the supervisor's
+#     mailbox.
+#
+# Escalation as a return value (not Cancel.raise): the v1
+# escalation path returns `Outcome.Escalated` when the
+# intensity limit is exceeded. The original sketch raised
+# Cancel for escalation (so a parent supervisor would observe
+# the failure through its own Link), but kaikai's current
+# semantics prioritise an outer `handle { ... } with Cancel`
+# clause over the trap-exit conversion — meaning a Cancel
+# handler installed by the caller intercepts the child's crash
+# directly, bypassing the supervisor's restart loop. Returning
+# Outcome avoids that interaction entirely. Layered supervision
+# (an outer with_restart watching an inner one) is achievable
+# by checking the inner's Outcome and re-raising as needed.
+#
+# v1 simplification: `RestartLimit` carries only `intensity` —
+# the cumulative count of restarts allowed before escalation.
+# The OTP-style sliding-window `period` is a follow-up
+# (`docs/design.md` §*External dependencies on kaikai* tracks
+# the dependency on `Clock` for the timestamp comparison).
+
+import actor
+import spawn
+
+pub type RestartPolicy = Permanent | Transient | Temporary
+
+pub type RestartLimit = Limit(Int)
+
+pub type Outcome = Completed | Escalated
+
+pub fn default_limit() : RestartLimit = Limit(5)
+
+# Run `body` under the policy. Returns `Completed` if the body
+# terminated in a way the policy accepts (Normal exit under
+# Transient/Temporary, or Crashed exit under Temporary), or
+# `Escalated` if the intensity limit was exceeded. The body
+# receives the supervisor's pid so it can `Link.link(parent)`
+# and become observable to the trap-exit channel.
+pub fn with_restart[e](
+  policy: RestartPolicy,
+  limit:  RestartLimit,
+  body:   (Pid[String]) -> Unit / Actor[String] + Link + e
+) : Outcome / Actor[String] + Spawn + Link + Cancel + e = {
+  let _ = fiber_set_trap_exit(true)
+  let parent = Actor.self()
+  restart_loop(policy, limit, body, parent, 0)
+}
+
+fn restart_loop[e](
+  policy: RestartPolicy,
+  limit:  RestartLimit,
+  body:   (Pid[String]) -> Unit / Actor[String] + Link + e,
+  parent: Pid[String],
+  count:  Int
+) : Outcome / Actor[String] + Spawn + Link + Cancel + e = {
+  let intensity = match limit { Limit(i) -> i }
+  if count >= intensity {
+    Escalated
+  } else {
+    let _ = fiber_spawn(() => with_mailbox { body(parent) })
+    let reason = Actor.receive()
+    match policy {
+      Permanent -> restart_loop(policy, limit, body, parent, count + 1)
+      Transient -> match reason {
+        "Crashed" -> restart_loop(policy, limit, body, parent, count + 1)
+        _         -> Completed
+      }
+      Temporary -> Completed
+    }
+  }
+}

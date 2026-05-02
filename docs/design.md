@@ -348,40 +348,73 @@ helpers compose with nurseries — a nursery + N children + N
 restart wrappers **is** your supervision tree.
 
 ```kai
-type RestartPolicy =
-  | Permanent       # restart on any termination
-  | Transient       # restart only on abnormal termination
-  | Temporary       # never restart
+# In src/restart.kai (Tongariki):
+pub type RestartPolicy = Permanent | Transient | Temporary
+pub type RestartLimit  = Limit(Int)               # intensity only in v1
+pub type Outcome       = Completed | Escalated
 
-type RestartLimit = { intensity: Int, period: Duration }
-
-# Wrap a fiber body with restart policy.
-pub fn with_restart[T, e](
-  policy: RestartPolicy,
-  limit:  RestartLimit,             # default 5/60s
-  body:   () -> T / e
-) : T / Spawn + Cancel + e
-
-# Convenience: wrap a cell directly.
-pub fn restartable_cell[Msg, e](
+pub fn with_restart[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
-  body:   () -> Cell[Msg, e]
-) : Pid[Msg] / Spawn + e
+  body:   (Pid[String]) -> Unit / Actor[String] + Link + e
+) : Outcome / Actor[String] + Spawn + Link + Cancel + e
 ```
 
-`with_restart` returns the body's result on normal completion.
-On crash, it consults the policy:
+The implementation uses kaikai's trap-exit mechanism
+(`docs/actors.md` §*Trap-exit semantics*): the supervisor
+sets `fiber_set_trap_exit(true)`, spawns the body in a child
+fiber that calls `Link.link(parent)`, and parks on
+`Actor.receive()` to observe the termination as a `String`
+message ("Normal" or "Crashed"). The policy decides whether
+to spawn the body again or return.
+
+On termination the supervisor consults the policy:
 
 - `Permanent`: restart the body unconditionally.
-- `Transient`: restart only if the cause was abnormal
-  (`Crashed(_)` or `Cancelled`); on `Normal`, return.
-- `Temporary`: never restart; propagate the cause up.
+- `Transient`: restart only on `"Crashed"`; on `"Normal"`, return
+  `Completed`.
+- `Temporary`: never restart; return `Completed`.
 
-`RestartLimit` is the OTP intensity-over-period rule: at most
-`intensity` restarts within `period`, otherwise the helper itself
-crashes. The default `5 / 60s` matches OTP convention; users
-override per-call.
+When the cumulative restart count reaches `intensity`, the
+supervisor returns `Escalated` instead of looping again. A
+parent that wants to react to escalation (e.g. another
+`with_restart` watching the wrapper) inspects the returned
+`Outcome` and re-raises as needed.
+
+**Why escalation returns `Outcome.Escalated` instead of raising
+`Cancel`:** the original sketch used `Cancel.raise()` so a
+parent supervisor would observe escalation through its own
+Link / trap-exit channel. In current kaikai, an outer
+`handle { ... } with Cancel { raise(_) -> ... }` clause at the
+caller site intercepts the *child*'s `Cancel.raise()` directly
+(before trap-exit converts it), so the supervisor's restart
+loop never gets to run. Returning `Outcome` avoids that
+interaction entirely. Layered supervision still composes:
+the outer `with_restart`'s body inspects the inner outcome
+and re-raises by raising itself (e.g. via `Cancel.raise()` —
+guarded by trap-exit at the *outer* layer, where there is no
+intermediate Cancel handler). When kaikai's effect-handler
+ordering vs trap-exit semantics is tightened upstream, this
+escalation path may revert to direct propagation.
+
+**`RestartLimit` v1 simplification.** Carries only `intensity`.
+The OTP-style sliding-window `period` requires a `Clock` effect
+for timestamp comparison; that arrives in a follow-up lane.
+
+**`restartable_cell` deferred.** A combined Cell + restart
+helper would require the supervised body to hold both
+`Actor[String]` (for trap-exit) and `Actor[Msg]` (for the
+cell mailbox) in the same fiber. Current kaikai allows two
+`Actor` effects in the row at the type level but the runtime
+pairs each fiber with exactly one mailbox, which produces a
+runtime error or segfault when the second `Actor.send` lookup
+hits the wrong handler. ahu-Tongariki ships `with_restart` as
+the standalone restart primitive; users compose by spawning the
+cell from inside a separate inner fiber that does not share
+the supervisor's mailbox. A proper `restartable_cell` waits on
+upstream support for two-mailbox fibers, or for a
+multi-handler refactor of the trap-exit channel that does not
+require a String mailbox specifically.
 
 **A "supervision tree" using these primitives:**
 
