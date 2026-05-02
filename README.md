@@ -39,12 +39,22 @@ kaikai      (the language)
    ↓
 ahu         (this repository — concurrency and fault-tolerance)
    ↓
-ahu-db      (database / persistence layer)
+kohau       (database / persistence layer)
    ↓
-ahu-ddd     (DDD building blocks)
+henua       (DDD building blocks)
    ↓
 manutara    (web framework)
 ```
+
+Names follow the Rapa Nui vocabulary already in use across the
+ecosystem. `kohau` (*inscribed wooden tablet*, the substrate that
+carried the rongorongo script) names the persistence layer.
+`henua` (*land / territory / domain*) names the DDD building-block
+layer — the metaphor for "domain" in Domain-Driven Design is
+literal in the language. The earlier placeholder names
+(`ahu-db`, `ahu-ddd`) were dropped because the `ahu-` prefix
+implied submodule status, when each is actually a separate
+framework with its own repository, roadmap, and release cycle.
 
 Each project has its own repository, its own `docs/roadmap.md`,
 and its own `Tongariki / Anga Roa / Orongo / Anakena` series.

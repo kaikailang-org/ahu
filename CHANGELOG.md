@@ -26,6 +26,17 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **2026-05-02 ecosystem rename.** The placeholder names `ahu-db` and
+  `ahu-ddd` for the persistence and DDD layers were dropped in favour
+  of standalone Rapa Nui names: `kohau` (inscribed wooden tablet, the
+  substrate that carried the rongorongo script — maps cleanly to a
+  persistence layer's substrate role) and `henua` (land / territory /
+  domain — direct mapping to DDD's "domain" vocabulary). The
+  `ahu-` prefix implied submodule status, but each is a separate
+  framework with its own repository, roadmap, and release cycle.
+  Updated `README.md`, `docs/design.md`, and `docs/roadmap.md`. The
+  upstream `kaikai/docs/roadmap.md` still uses the placeholder names
+  and will be updated in a coordinated kaikai PR.
 - **2026-05-02 design pivot.** The first iteration of `docs/design.md`
   pinned an OTP-style framework (`Behavior` as record of callbacks,
   `Supervisor` with `one_for_one` strategy, `Application`). The
