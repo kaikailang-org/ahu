@@ -73,12 +73,14 @@ tier1-fixtures: $(ALL_BINS)
 	done
 
 # Pattern rule for tests/ fixtures.
-$(BUILD)/%: tests/%.kai src/cell.kai | $(BUILD)
+AHU_SRC = $(wildcard src/*.kai)
+
+$(BUILD)/%: tests/%.kai $(AHU_SRC) | $(BUILD)
 	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
 	$(CC) $(CFLAGS) $(BUILD)/$*.c -o $@
 
 # Pattern rule for examples/<name>/main.kai fixtures.
-$(BUILD)/%: examples/%/main.kai src/cell.kai | $(BUILD)
+$(BUILD)/%: examples/%/main.kai $(AHU_SRC) | $(BUILD)
 	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
 	$(CC) $(CFLAGS) $(BUILD)/$*.c -o $@
 

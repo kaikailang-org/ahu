@@ -1,0 +1,29 @@
+# tests/restart_transient_normal.kai — Transient policy + Normal exit → Completed (no restart).
+#
+# Coverage: the Transient policy with a body that returns Unit
+# cleanly. trap-exit delivers "Normal"; Transient does NOT
+# restart on Normal (only on Crashed). The supervisor returns
+# Completed after one body run.
+
+import actor
+import spawn
+import restart
+
+fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console = {
+  Link.link(parent)
+  Stdout.print("body: ran (clean exit)")
+}
+
+fn print_outcome(o: Outcome) : Unit / Console = match o {
+  Completed -> Stdout.print("supervisor: Completed")
+  Escalated -> Stdout.print("supervisor: Escalated")
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
+  print_outcome(with_restart(Transient, default_limit(), body))
+}
+
+fn main() : Int / Console + Spawn + Link + Cancel = {
+  with_mailbox { run() }
+  0
+}
