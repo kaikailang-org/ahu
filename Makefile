@@ -56,6 +56,11 @@ EXAMPLE_KAI    = $(wildcard examples/*/main.kai)
 TEST_NAMES     = $(patsubst tests/%.kai,%,$(TEST_KAI))
 EXAMPLE_NAMES  = $(patsubst examples/%/main.kai,%,$(EXAMPLE_KAI))
 
+# Examples that compile but should not run-and-diff in tier1
+# (interactive servers, etc). Listed by directory basename.
+TIER1_SKIP_RUN = echo
+EXAMPLE_RUN_NAMES = $(filter-out $(TIER1_SKIP_RUN),$(EXAMPLE_NAMES))
+
 TEST_BINS      = $(addprefix $(BUILD)/,$(TEST_NAMES))
 EXAMPLE_BINS   = $(addprefix $(BUILD)/,$(EXAMPLE_NAMES))
 ALL_BINS       = $(TEST_BINS) $(EXAMPLE_BINS)
@@ -84,7 +89,7 @@ tier1-fixtures: $(ALL_BINS)
 	  diff -u "$$exp" "$$out" || { echo "tier1: $$n FAIL"; exit 1; }; \
 	  echo "tier1: $$n OK"; \
 	done; \
-	for n in $(EXAMPLE_NAMES); do \
+	for n in $(EXAMPLE_RUN_NAMES); do \
 	  bin="$(BUILD)/$$n"; \
 	  exp="examples/$$n/main.out.expected"; \
 	  out="$(BUILD)/$$n.out"; \
@@ -92,6 +97,9 @@ tier1-fixtures: $(ALL_BINS)
 	  "$$bin" > "$$out"; \
 	  diff -u "$$exp" "$$out" || { echo "tier1: example/$$n FAIL"; exit 1; }; \
 	  echo "tier1: example/$$n OK"; \
+	done; \
+	for n in $(TIER1_SKIP_RUN); do \
+	  if [ -x "$(BUILD)/$$n" ]; then echo "tier1: example/$$n compile-only OK"; fi; \
 	done
 
 # Pattern rule for tests/ fixtures.
