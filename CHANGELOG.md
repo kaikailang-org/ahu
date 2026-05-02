@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **ahu module namespacing.** `src/cell.kai` and
+  `src/restart.kai` moved to `src/ahu/cell.kai` and
+  `src/ahu/restart.kai`. User code now imports them as
+  `import ahu.cell` and `import ahu.restart`; function calls
+  use the dotted form (`cell.with_cell(...)`,
+  `restart.with_restart(...)`, `cell.keep(s)`,
+  `cell.cell_done()`, `restart.default_limit()`); types
+  remain bare in their position (`StepResult[State]`,
+  `RestartPolicy`, `Outcome`). The dotted-function form
+  matches kaikai stdlib's `list.X` / `string.X` style and
+  prevents nominal collisions if kaikai stdlib ever ships a
+  module of the same bare name. All 7 fixtures + the counter
+  example refactored. tier1 still 8 fixtures green.
+
 ### Added
 
 - `tests/stream_pipeline.kai` — canonical Layer 1 pipeline

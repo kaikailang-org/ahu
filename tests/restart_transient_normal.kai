@@ -7,7 +7,7 @@
 
 import actor
 import spawn
-import restart
+import ahu.restart
 
 fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console = {
   Link.link(parent)
@@ -20,7 +20,7 @@ fn print_outcome(o: Outcome) : Unit / Console = match o {
 }
 
 fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
-  print_outcome(with_restart(Transient, default_limit(), body))
+  print_outcome(restart.with_restart(Transient, restart.default_limit(), body))
 }
 
 fn main() : Int / Console + Spawn + Link + Cancel = {

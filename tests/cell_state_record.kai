@@ -11,7 +11,7 @@
 
 import spawn
 import actor
-import cell
+import ahu.cell
 
 type Stats = { name: String, count: Int }
 
@@ -20,13 +20,13 @@ type StatsMsg = Tick | GetState(Pid[StatsMsg]) | StateReply(Stats) | Stop
 fn stats_step(s: Stats, msg: StatsMsg)
   : StepResult[Stats] / Console + Actor[StatsMsg]
 = match msg {
-    Tick -> keep(Stats { name: s.name, count: s.count + 1 })
+    Tick -> cell.keep(Stats { name: s.name, count: s.count + 1 })
     GetState(reply_to) -> {
       Actor.send(reply_to, StateReply(s))
-      keep(s)
+      cell.keep(s)
     }
-    StateReply(_) -> keep(s)
-    Stop          -> cell_done()
+    StateReply(_) -> cell.keep(s)
+    Stop          -> cell.cell_done()
   }
 
 fn driver(me: Pid[StatsMsg], cell_pid: Pid[StatsMsg])
@@ -48,7 +48,7 @@ fn driver(me: Pid[StatsMsg], cell_pid: Pid[StatsMsg])
 fn run() : Unit / Spawn + Console + Actor[StatsMsg] = {
   let me = Actor.self()
   let initial = Stats { name: "events", count: 0 }
-  with_cell(initial, stats_step, (pid) => driver(me, pid))
+  cell.with_cell(initial, stats_step, (pid) => driver(me, pid))
 }
 
 fn main() : Int / Console + Spawn = {
