@@ -12,14 +12,14 @@ framework that runs underneath manutara and friends.
 > - `lnds/kaikai#106` (core.list higher-order helpers)
 > - `lnds/kaikai#107` (Signal effect for graceful shutdown)
 >
-> Layer 2 (cells), Layer 3 (restart helpers), and Layer 1
-> (streams) have shipped — PRs `#2`, `#3`, `#5`. The current
-> lane (`ahu-tongariki-restart-v2`) reverts `with_restart`
-> from the `Outcome` workaround to BEAM-faithful
-> `Cancel.raise()` for escalation now that #103 is fixed. The
-> remaining ahu work — `restartable_cell`, `run_app`, and the
-> TCP echo integration example — is now upstream-unblocked
-> and queues as future lanes.
+> Layer 2 (cells), Layer 3 (restart helpers + `restartable_cell`
+> combined helper), and Layer 1 (streams) have all shipped.
+> `with_restart` uses BEAM-faithful `Cancel.raise()` for
+> escalation. `restartable_cell` boots a cell under restart
+> supervision with state-reset-on-restart semantics. The
+> remaining ahu-Tongariki work — `run_app` bootstrap and the
+> TCP echo integration example — is upstream-unblocked
+> (`#107` closed) and queues as the next lanes.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -431,20 +431,56 @@ converts at the runtime boundary.
 The OTP-style sliding-window `period` requires a `Clock` effect
 for timestamp comparison; that arrives in a follow-up lane.
 
-**`restartable_cell` deferred.** A combined Cell + restart
-helper would require the supervised body to hold both
-`Actor[String]` (for trap-exit) and `Actor[Msg]` (for the
-cell mailbox) in the same fiber. Current kaikai allows two
-`Actor` effects in the row at the type level but the runtime
-pairs each fiber with exactly one mailbox, which produces a
-runtime error or segfault when the second `Actor.send` lookup
-hits the wrong handler. ahu-Tongariki ships `with_restart` as
-the standalone restart primitive; users compose by spawning the
-cell from inside a separate inner fiber that does not share
-the supervisor's mailbox. A proper `restartable_cell` waits on
-upstream support for two-mailbox fibers, or for a
-multi-handler refactor of the trap-exit channel that does not
-require a String mailbox specifically.
+**`restartable_cell`** ships alongside `with_restart` — the
+combined helper that boots a cell under restart supervision
+and runs a user's driver against it:
+
+```kai
+pub fn restartable_cell[State, Msg, e](
+  policy:  RestartPolicy,
+  limit:   RestartLimit,
+  initial: State,
+  step:    (State, Msg) -> StepResult[State] / Actor[Msg] + e,
+  driver:  (Pid[Msg]) -> Unit / Actor[Msg] + e
+) : Unit / Actor[String] + Spawn + Link + Cancel + e
+```
+
+Each restart re-spawns BOTH the supervised body AND a fresh
+cell — state resets to `initial`, the previous cell pid is
+discarded. The composition is:
+
+1. `with_restart` spawns a body fiber, links it back to the
+   supervisor, installs trap-exit on the supervisor.
+2. The body fiber installs a nested `with_mailbox` of `Msg`
+   type — the inner mailbox the cell will read from.
+3. Inside that inner scope, `cell.with_cell(initial, step,
+   driver)` spawns the cell as its own fiber and runs the
+   user's `driver(pid)` in the body fiber.
+4. When `driver` returns, the body fiber returns Unit;
+   trap-exit fires `"Normal"` / `"Crashed"` on the
+   supervisor's mailbox. Restart policy applies as usual.
+
+Pre-`lnds/kaikai#104` (closed in 0.36.x), step 2 → step 3
+crashed the runtime: a fiber that was trap-exit'd by its
+parent and held a nested mailbox of a different `Msg` type
+segfaulted on the inner `spawn_actor`. With #104 closed,
+this composition works cleanly. Verified end-to-end by
+`tests/cross_restartable_cell.kai` (Transient + Normal exit
+→ supervisor returns) and
+`tests/cross_restartable_cell_restart.kai` (Permanent + body
+crashes → 2 cycles + escalation, state resets between
+restarts).
+
+**v1 limitation:** the cell crashing mid-driver is NOT
+observed by the supervised body. The body's most-recently-
+allocated mailbox is `Msg` (not `String`), so a cell-link
+trap-exit message would corrupt the typing. Cell crashes
+therefore go silent from the supervisor's perspective; the
+driver may discover the dead cell through stalled receives
+or via its own protocol-level liveness checks. Cell-level
+crash observation (linked cell with separate-channel exit
+notification) is a follow-up once kaikai exposes typed
+trap-exit channels.
 
 **A "supervision tree" using these primitives:**
 
