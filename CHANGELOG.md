@@ -8,6 +8,36 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `tests/stream_pipeline.kai` — canonical Layer 1 pipeline
+  fixture exercising `[0..5]` range literal + `|` map-pipe +
+  `|>` apply-pipe + `list.filter` / `list.foldl` with an
+  effectful callback (`Console`). Total output `total=24`
+  locked in `.out.expected`. tier1 now runs 8 fixtures.
+- `Makefile` — prelude chain expanded to mirror `bin/kai`'s
+  full set (`encoding/*`, `collections/*`, `math/*`,
+  `decimal`, `money`, `uuid`, `regexp`, `path` on top of
+  the original `core/*` / `protocols` / `effects` /
+  `random`). Without this, `list.X` dotted module paths do
+  not resolve.
+
+### Changed
+
+- `docs/design.md` §*Layer 1 — Streams* rewritten. Original
+  sketch had `Source[T, e]` / `Flow[A, B, e]` /
+  `Sink[T, R, e]` records carrying effect rows in their
+  type parameters; that shape does not type-check under
+  current kaikai (effect rows live only in function-type
+  effect positions). Replaced with the honest reality:
+  ahu-Tongariki ships ZERO stream-layer code; the pipeline
+  combinators all live in kaikai stdlib + language syntax
+  (`[a..b]` literal, `|` map-pipe, `|>` apply-pipe,
+  `list.map / filter / foldl / foreach / ...`). Documents
+  what is NOT in this layer (lazy / unbounded sources like
+  TCP listeners — those need upstream row-poly type
+  parameters in records and are post-Tongariki) and why
+  ahu does not re-export `list.*` under a `stream.*` alias
+  (canonical spelling stays canonical).
+
 - `docs/lane-experience-ahu-tongariki-cells-restart.md` —
   consolidated retrospective for the Layer 2 (cells) and
   Layer 3 (restart) implementation lanes (PRs `#2` and `#3`).
