@@ -229,57 +229,96 @@ addressable identity.
 ### Layer 2 — Cells
 
 A cell is a long-running stateful entity with a typed mailbox.
-Its body is a **recursive function**: each iteration receives a
-message, computes the next state, and returns the next iteration's
-function (or `done()` to terminate). Borrowed in shape from Akka
-Typed's `Behavior[T]`; renamed to *cell* to avoid OTP coding.
+The user writes a **step function** `(State, Msg) -> StepResult[State] / e`
+and ahu runs it inside a fiber that parks on `Actor.receive()`
+between iterations. State threads through the recursion (no
+internal mutation); behaviour switches are encoded as a sum
+type for State (Active → Paused → Draining as variants).
 
 ```kai
-# Cell[Msg] is the type of the per-message dispatch function.
-# Implementation-wise it is a closure over State.
-type Cell[Msg, e]
+# In src/cell.kai:
+pub type StepResult[State] = Continue(State) | Done
 
-# A counter cell:
-fn counter(value: Int) : Cell[CounterMsg] / Console = receive {
-  Increment            -> {
-    Console.print("counter: now #{value + 1}")
-    counter(value + 1)
-  }
-  GetValue(reply_to)   -> {
-    reply_to.send(value)
-    counter(value)              # state unchanged
-  }
-  Reset                -> counter(0)
-  Stop                 -> done()
-}
+pub fn keep[State](s: State) : StepResult[State] = Continue(s)
+pub fn cell_done[State]() : StepResult[State] = Done
 
-# Boot it:
-fn main() : Unit / Spawn + Console = {
-  let pid = start_cell(() => counter(0))
-  pid.send(Increment)
-  pid.send(Increment)
-  pid.send(Stop)
+pub fn with_cell[State, Msg, R, e](
+  initial: State,
+  step:    (State, Msg) -> StepResult[State] / e,
+  body:    (Pid[Msg]) -> R / e
+) : R / Spawn + e
+```
+
+A counter cell, end-to-end:
+
+```kai
+type CounterMsg = Increment | GetValue(Pid[CounterMsg])
+                | ReplyValue(Int) | Stop
+
+fn counter_step(value: Int, msg: CounterMsg)
+  : StepResult[Int] / Console + Actor[CounterMsg]
+= match msg {
+    Increment          -> {
+      Stdout.print("++ to " ++ int_to_string(value + 1))
+      keep(value + 1)
+    }
+    GetValue(reply_to) -> {
+      Actor.send(reply_to, ReplyValue(value))
+      keep(value)
+    }
+    ReplyValue(_)      -> keep(value)
+    Stop               -> cell_done()
+  }
+
+fn run() : Unit / Spawn + Console + Actor[CounterMsg] = {
+  let me = Actor.self()
+  with_cell(0, counter_step, (counter) => {
+    Actor.send(counter, Increment)
+    Actor.send(counter, GetValue(me))
+    match Actor.receive() {
+      ReplyValue(v) -> Stdout.print("got " ++ int_to_string(v))
+      _             -> Stdout.print("unexpected")
+    }
+    Actor.send(counter, Stop)
+  })
 }
 ```
 
-Three things to notice:
+Four things to notice:
 
-1. **State is the recursion argument**, not internal mutation. No
-   `var`, no implicit context. The transition `value → value + 1`
-   is explicit in the next call. This is functional and matches
-   how kaikai users already think about state.
-2. **Effects flow through the row.** `counter` declared `/ Console`
-   in its signature; `start_cell` propagates that into its caller
-   via row polymorphism (`fn start_cell[Msg, e](body: () -> Cell[Msg, e]) : Pid[Msg] / Spawn + e`).
-3. **Termination is structural.** `done()` returns a sentinel cell
-   value that the runtime recognises as "this entity is finished".
-   The cell's mailbox drains; the fiber exits cleanly. There is no
-   `terminate(state, reason)` callback — cleanup happens before
-   returning `done()`, in ordinary kaikai code.
+1. **State is the recursion argument**, not internal mutation.
+   The transition `value → value + 1` is explicit in `keep(value + 1)`.
+2. **Effects flow through the row.** `counter_step` declared
+   `/ Console + Actor[CounterMsg]`; `with_cell` propagates the
+   union into its caller via the open row variable `e`.
+3. **Termination is structural.** `cell_done()` returns the
+   `Done` sentinel; the dispatcher recognises it and the fiber
+   exits cleanly. There is no `terminate(state, reason)`
+   callback — cleanup happens before returning `cell_done()`,
+   in ordinary kaikai code.
+4. **The pid is scoped to the body.** `with_cell` mirrors the
+   shape of kaikai's `with_mailbox`: the cell's `Pid[Msg]` is
+   handed to a body closure rather than returned as a free
+   value. This is enforced by kaikai's region-brand walker —
+   user code cannot return a `Pid[Msg]` until full
+   `TyBranded` propagation lands upstream
+   (`fibers-honesty-targets.md` §*Residual m8.x items*; the
+   compiler's `fiber_producer_helpers` allow-list permits
+   `fiber_spawn` / `spawn_actor` / `alloc_for_policy` only).
+   When that gap closes, ahu can additionally expose a free
+   `start_cell : (...) -> Pid[Msg] / Spawn + e` constructor;
+   until then `with_cell` is the only cell entry point.
 
-The receive-shape (`receive { ... }`) sketched above desugars to
-the kaikai `Actor.receive()` op plus a `match`. Implementation
-details live in the eventual `src/cell.kai`.
+The unified-message-protocol pattern in the example (where the
+driver and the cell share `CounterMsg` so `Actor[CounterMsg]`
+covers both directions) is the canonical kaikai actor shape:
+one `Actor[Msg]` effect can both send to and receive from any
+pid of that Msg type. Cross-type request/reply via two separate
+`Actor[A]` and `Actor[B]` effects is not expressible in current
+kaikai (one mailbox per fiber; see `kaikai/docs/actors.md`
+§*Open questions* #4). A `Cell.ask(pid, build_request)` helper
+that opens an inner `with_mailbox` for the reply lands in
+ahu-Anga Roa once the pattern recurs.
 
 **Composing cells:** request/reply uses `with_mailbox` on the
 caller side (kaikai pattern from `actors.md` §*with_mailbox*):
@@ -603,29 +642,73 @@ If this works, ahu-Tongariki is fulfilled.
 
 ## External dependencies on kaikai
 
-Three known gaps to coordinate with upstream:
+### Closed (as of kaikai 0.34.0)
 
-1. **Blocking `Actor.receive()` on an empty mailbox.** Cells
-   spend their lifetime parked on `receive`. Today
-   `kaikai/stdlib/actor.kai` says receive on empty is a runtime
-   error — needs the m8.x cooperative scheduler. Hard blocker
-   for the implementation lane; not for the design.
-2. **`BlockSender` mailbox policy delivery.** Same upstream
-   dependency. Streams' default buffer between stages will use
-   `BlockSender`; until m8.x lands, fixtures use
-   `DropOldest` / `DropNewest` for buffered stages.
+Three blockers from the original design have closed upstream:
+
+1. **Blocking `Actor.receive()` on an empty mailbox.** Closed
+   by kaikai m8.x runtime (landed v0.4.0; documentation
+   alignment in v0.32.0 / Tongariki Wave 3, kaikai PR #73). A
+   cell parked on `receive` now suspends via `swapcontext` and
+   resumes when a message arrives.
+2. **`BlockSender` mailbox policy delivery.** Same kaikai m8.x
+   work. All four mailbox policies (`Unbounded`, `Bounded(c,
+   DropOldest|DropNewest|BlockSender)`) reach the runtime in
+   v0.32.0. Senders park on the per-mailbox `send_waiter`
+   chain when full and resume when receivers pop a slot.
+3. **Region-brand for `Pid[Msg]` flowing through sum-type
+   payloads.** Closed by kaikai PR #74 / issue #71 option (a)
+   in v0.34.0 — the deep `TyBranded` walker now correctly
+   detects sum-payload escape and admits the legitimate
+   ahu/stdlib patterns. (See *Open* below for the residual
+   piece.)
+
+Plus one bonus for ahu's reference example:
+
+4. **NetTcp v1** shipped in kaikai v0.33.0
+   (`stdlib/net/tcp.kai`). Layer 1's `Source.from_listener(port)`
+   has a real implementation target instead of a mock.
+
+### Open (residual gaps)
+
+Two gaps remain. Neither blocks ahu-Tongariki implementation but
+each shapes the API surface ahu can offer today:
+
+1. **Free `start_cell : ... -> Pid[Msg]` constructor.** Kaikai's
+   region-brand walker today consults a hardcoded allow-list
+   (`fiber_producer_helpers` in
+   `kaikai/stage2/compiler.kai`: `fiber_spawn`,
+   `spawn_actor`, `alloc_for_policy`) for which functions may
+   return `Pid[Msg]` / `Fiber[T]`. User-code helpers — including
+   ahu's — are rejected. ahu-Tongariki ships `with_cell(initial,
+   step, body)` as the canonical entry point (mirroring
+   `with_mailbox`'s shape), and adds a free `start_cell` once
+   full `TyBranded(Ty, BrandId)` propagation lands upstream
+   (`docs/fibers-honesty-targets.md` §*Residual m8.x items*).
+   Tracked as `kaikai#TBD` once a concrete proposal lands.
+2. **Structured `with_cell` shutdown.** When `body` returns, the
+   cell's fiber is still alive — the kaikai `nursery` helper is
+   currently a typed pass-through (`stdlib/spawn.kai` line 84:
+   *"the nursery body itself does not yet implement the
+   structured cancel-on-fail-and-rethrow semantics"*). ahu's
+   `with_cell` therefore lets the cell outlive the body in v1;
+   any final messages (e.g. a `Stop` sent right before the body
+   returns) may not be processed before `main` exits. Closes
+   when the kaikai nursery wraps `Spawn` and observes child
+   terminations through `Link`. Until then, ahu-Tongariki
+   examples avoid asserting on post-`Stop` cell output.
+
 3. **Effect-row propagation through closure types in record
-   fields.** `Source[T, e]` and `Flow[A, B, e]` carry effect
-   rows in their type parameters. Kaikai's effects spec
-   (`docs/effects.md` §*Effect rows*: *"Effect rows do not
-   appear inside ordinary types — they only appear in the
-   effect position of function types"*) implies the row is
-   carried through the `() -> T / e` closure inside the type;
-   the design assumes this works. If a typer-level gap
-   surfaces during implementation, it goes upstream as a
-   kaikai issue, not patched in ahu.
+   fields.** Streams (`Source[T, e]`, `Flow[A, B, e]`,
+   `Sink[T, R, e]`) need this to typecheck. Kaikai's effects
+   spec implies it works (rows live on the function type
+   inside the record), but ahu's stream layer has not yet
+   exercised it; verification arrives during the streams
+   implementation lane. Tracked as a watch item, not a
+   confirmed gap.
 
-The design lane does not patch any of these.
+The design lane does not patch any of these — gaps are surfaced
+as kaikai issues coordinated separately.
 
 ## Not goals
 

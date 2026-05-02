@@ -1,0 +1,97 @@
+# src/cell.kai — ahu Layer 2: long-running stateful entities.
+#
+# A cell is a fiber + typed mailbox + recursive step function.
+# State is the recursion argument (no internal mutation). Each
+# call to the step function receives one message, returns the
+# next state, and the dispatcher loops or terminates based on
+# the result.
+#
+# The user-facing constructor is `with_cell(initial, step, body)`
+# (the same shape as kaikai stdlib's `with_mailbox`): the cell
+# is spawned, the user's `body` runs inside the cell's lifetime
+# scope and receives the cell's `Pid[Msg]` to talk to it, and
+# the cell shuts down when `body` returns. This shape is
+# enforced by kaikai's region-brand walker — a free `start_cell
+# : ... -> Pid[Msg]` form would require user code to return a
+# `Pid[Msg]`, which the walker rejects until full TyBranded
+# propagation lands upstream (`fibers-honesty-targets.md`
+# §*Residual m8.x items*; the allow-list lives in the kaikai
+# compiler's `fiber_producer_helpers`). The with-shape is the
+# load-bearing form for ahu-Tongariki and reads cleanly:
+#
+#   with_cell(0, counter_step, (counter) => {
+#     Actor.send(counter, Increment)
+#     ...
+#   })
+#
+# Why a step function over `(state, msg)` instead of Akka Typed's
+# recursive `Behavior[T]` value: kaikai effect rows can only
+# appear in function-type effect positions, not as type
+# parameters of ordinary types (`docs/effects.md` §*Inference*).
+# A `Behavior[Msg, e]` carrying its own row was the original
+# sketch but does not type-check; a step function
+# `(State, Msg) -> StepResult[State] / e` carries the row at the
+# function-type level, which the typer permits. Behavior
+# switching (Active → Paused → Draining) is encoded as a sum
+# type for State — same expressive power as returning a
+# different `Behavior` in Akka Typed, just spelled differently.
+#
+# Spec: `docs/design.md` §*Layer 2 — Cells*.
+
+import actor
+import spawn
+
+# StepResult tags whether the cell continues or exits. It does
+# not carry an effect row — the row lives on the step function's
+# type, not on the result.
+pub type StepResult[State] = Continue(State) | Done
+
+# `cell_done()` is the canonical terminator. Use it instead of a
+# bare `Done` constructor when the type cannot be inferred.
+pub fn cell_done[State]() : StepResult[State] = Done
+
+# `keep(state)` is the continuation form. Symmetric spelling at
+# the call site:
+#   match msg {
+#     Increment -> keep(state + 1)
+#     Stop      -> cell_done()
+#   }
+pub fn keep[State](s: State) : StepResult[State] = Continue(s)
+
+# Run a cell scope. Spawns a cell with `initial` state and `step`
+# as the per-message handler, then calls `body` with the cell's
+# `Pid[Msg]`. The body uses the pid (typically via `Actor.send`)
+# and returns its result. When the body returns, control flows
+# out — the cell continues running until it returns `Done` from
+# its step function or its parent nursery cancels it. Effects of
+# `step` and `body` flow into the caller's row via the open row
+# variable `e`.
+#
+# The body must coexist in the caller's `Actor[Msg]` row when it
+# wants to send to the cell (or receive replies from it through
+# the same mailbox). The caller typically establishes that with
+# an outer `with_mailbox` whose Msg type matches the cell's.
+pub fn with_cell[State, Msg, R, e](
+  initial: State,
+  step:    (State, Msg) -> StepResult[State] / e,
+  body:    (Pid[Msg]) -> R / e
+) : R / Spawn + e = {
+  let pid = spawn_actor(() => cell_loop(initial, step))
+  body(pid)
+}
+
+# The dispatcher loop. Internal to ahu — users never call it
+# directly. Receives one message, runs `step`, recurses or
+# returns based on the result. Tail-recursive so the cooperative
+# scheduler treats this as a single fiber that lives until
+# `Done`.
+fn cell_loop[State, Msg, e](
+  state: State,
+  step:  (State, Msg) -> StepResult[State] / e
+) : Unit / Actor[Msg] + e = {
+  let msg = Actor.receive()
+  match step(state, msg) {
+    Continue(new_state) -> cell_loop(new_state, step)
+    Done                -> ()
+  }
+}
