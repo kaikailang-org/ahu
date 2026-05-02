@@ -1,0 +1,4 @@
+counter: ++ to 1
+counter: ++ to 2
+counter: ++ to 3
+driver: got value 3
