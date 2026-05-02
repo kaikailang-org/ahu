@@ -17,9 +17,27 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   Stop, talking to a driver via the unified `CounterMsg`
   protocol. Verifies cell creation, message dispatch, request /
   reply, and tail-recursive state threading end-to-end.
-- `Makefile` — `make tier0` (compile) and `make tier1` (compile +
-  run + diff against `.out.expected`). Wraps `kaic2` directly
+- `Makefile` — `make tier0` (compile every fixture) and
+  `make tier1` (compile + run + diff against `.out.expected`).
+  Discovers fixtures under both `tests/*.kai` and
+  `examples/*/main.kai` automatically. Wraps `kaic2` directly
   with `--path` for ahu's `src/` plus the kaikai stdlib.
+- `tests/cell_done_first.kai` — fixture covering the `Done` path
+  (cell exits on first message via request/ack).
+- `tests/cell_state_record.kai` — fixture covering record-typed
+  state threading (counter inside a `Stats { name, count }`
+  record).
+- `tests/cell_behavior_switch.kai` — fixture covering the
+  load-bearing claim of the design: behavior switching encoded
+  as a sum-typed state (`Active(v)` ↔ `Paused(v)`). Verifies
+  `Tick` is dropped while paused and resumed-then-incremented
+  arrives at `Active(v + 1)`.
+- `.github/workflows/tier1.yml` — CI workflow that checks out a
+  fresh `lnds/kaikai` HEAD on every run, bootstraps stages
+  0/1/2, then runs `make tier1` against ahu. The `kaikai_ref`
+  workflow input lets a manual run pin a specific kaikai SHA
+  for reproducibility (default is `main`). Requires
+  `KAIKAI_REPO_TOKEN` secret while `lnds/kaikai` is private.
 
 ### Changed
 

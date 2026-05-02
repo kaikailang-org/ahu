@@ -1,0 +1,57 @@
+# tests/cell_state_record.kai — Cell with record-typed state.
+#
+# Coverage: state threading through cell_loop with a non-primitive
+# state type. The cell holds a record { name: String, count: Int }
+# and updates the count on Tick, replies with the full record on
+# GetState, and exits on Stop.
+#
+# Verifies that StepResult[State] correctly carries an arbitrary
+# State type — the design's claim that "state is the recursion
+# argument" works for records, not just primitives.
+
+import spawn
+import actor
+import cell
+
+type Stats = { name: String, count: Int }
+
+type StatsMsg = Tick | GetState(Pid[StatsMsg]) | StateReply(Stats) | Stop
+
+fn stats_step(s: Stats, msg: StatsMsg)
+  : StepResult[Stats] / Console + Actor[StatsMsg]
+= match msg {
+    Tick -> keep(Stats { name: s.name, count: s.count + 1 })
+    GetState(reply_to) -> {
+      Actor.send(reply_to, StateReply(s))
+      keep(s)
+    }
+    StateReply(_) -> keep(s)
+    Stop          -> cell_done()
+  }
+
+fn driver(me: Pid[StatsMsg], cell_pid: Pid[StatsMsg])
+  : Unit / Console + Actor[StatsMsg]
+= {
+  Actor.send(cell_pid, Tick)
+  Actor.send(cell_pid, Tick)
+  Actor.send(cell_pid, Tick)
+  Actor.send(cell_pid, GetState(me))
+  match Actor.receive() {
+    StateReply(s) -> Stdout.print("driver: " ++ s.name ++ " count=" ++ int_to_string(s.count))
+    Tick          -> Stdout.print("driver: unexpected Tick")
+    GetState(_)   -> Stdout.print("driver: unexpected GetState")
+    Stop          -> Stdout.print("driver: unexpected Stop")
+  }
+  Actor.send(cell_pid, Stop)
+}
+
+fn run() : Unit / Spawn + Console + Actor[StatsMsg] = {
+  let me = Actor.self()
+  let initial = Stats { name: "events", count: 0 }
+  with_cell(initial, stats_step, (pid) => driver(me, pid))
+}
+
+fn main() : Int / Console + Spawn = {
+  with_mailbox { run() }
+  0
+}

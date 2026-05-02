@@ -125,6 +125,32 @@ intent.)
   initial design lane, including the OTP-style → streams+cells
   pivot.
 
+## CI
+
+Tier 1 runs on every PR and on every push to `main` via
+`.github/workflows/tier1.yml`. The workflow checks out a fresh
+copy of `lnds/kaikai` (HEAD of `main` by default; override via
+the `kaikai_ref` workflow input), bootstraps stages 0/1/2, then
+runs `make tier1` against ahu's fixtures (every `tests/*.kai`
+and `examples/*/main.kai` plus its `.out.expected` sibling).
+
+While `lnds/kaikai` remains private, the workflow needs a PAT
+with `repo:read` scope on `lnds/kaikai` configured as the
+repository secret `KAIKAI_REPO_TOKEN`. Once kaikai goes public,
+the `token:` line in the workflow can be removed and the secret
+retired.
+
+Locally, `make tier1` does the same fixture loop. `KAI_HOME`
+defaults to `../kaikai` for the sibling-checkout development
+flow:
+
+```sh
+git clone github.com/lnds/kaikai     # ../kaikai
+git clone github.com/lnds/ahu        # ./ahu
+cd kaikai && make all                # bootstrap stages 0/1/2
+cd ../ahu && make tier1
+```
+
 ## Documentation language
 
 All documentation, source comments, commit messages, and PR text

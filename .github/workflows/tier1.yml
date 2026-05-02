@@ -1,0 +1,74 @@
+name: tier1
+
+# Build a fresh checkout of `lnds/kaikai` (HEAD of `main` by default)
+# and run ahu's tier1 fixtures against it. The "fresh" model means
+# every CI run picks up upstream kaikai changes immediately —
+# breakage is surfaced as a failed ahu CI rather than a stale ahu
+# silently passing against an old kaikai.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      kaikai_ref:
+        description: kaikai git ref to test against (branch, tag, or SHA)
+        required: false
+        default: main
+
+concurrency:
+  group: tier1-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  KAIKAI_REF: ${{ github.event.inputs.kaikai_ref || 'main' }}
+
+jobs:
+  tier1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out ahu
+        uses: actions/checkout@v4
+        with:
+          path: ahu
+
+      - name: Check out kaikai (${{ env.KAIKAI_REF }})
+        uses: actions/checkout@v4
+        with:
+          repository: lnds/kaikai
+          ref: ${{ env.KAIKAI_REF }}
+          path: kaikai
+          # `lnds/kaikai` is currently a private repository, so the
+          # default GITHUB_TOKEN cannot reach it. Configure a PAT
+          # with `repo:read` scope on `lnds/kaikai` and store it as
+          # the repository secret `KAIKAI_REPO_TOKEN`. When kaikai
+          # goes public this `token` line can be removed.
+          token: ${{ secrets.KAIKAI_REPO_TOKEN }}
+
+      - name: Toolchain versions
+        run: |
+          cc --version
+          make --version | head -1
+
+      - name: Record kaikai SHA
+        working-directory: kaikai
+        run: |
+          echo "kaikai SHA: $(git rev-parse HEAD)"
+          echo "kaikai VERSION: $(cat VERSION)"
+
+      - name: Build kaikai (stage0 → stage1 → stage2)
+        working-directory: kaikai
+        run: make all
+
+      - name: ahu tier0 (compile module + fixtures)
+        working-directory: ahu
+        run: make tier0 KAI_HOME=$GITHUB_WORKSPACE/kaikai
+
+      - name: ahu tier1 (run fixtures + diff outputs)
+        working-directory: ahu
+        run: make tier1 KAI_HOME=$GITHUB_WORKSPACE/kaikai
