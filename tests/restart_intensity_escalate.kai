@@ -1,0 +1,35 @@
+# tests/restart_intensity_escalate.kai — intensity exceeded → Escalated outcome.
+#
+# Coverage: the intensity-exceeded path of with_restart.
+# Permanent policy + body that always crashes + intensity=2
+# means: body runs twice (count 0 and 1), the third would
+# exceed intensity, so with_restart returns Outcome.Escalated.
+# The caller observes the outcome and prints it.
+#
+# Verifies that escalation is observable as a clean return
+# value (not via Cancel propagation that would intercept the
+# child's Cancel.raise() at the wrong handler).
+
+import actor
+import spawn
+import restart
+
+fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = {
+  Link.link(parent)
+  Stdout.print("body: ran (will crash)")
+  Cancel.raise()
+}
+
+fn print_outcome(o: Outcome) : Unit / Console = match o {
+  Completed -> Stdout.print("supervisor: Completed")
+  Escalated -> Stdout.print("supervisor: Escalated")
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
+  print_outcome(with_restart(Permanent, Limit(2), body))
+}
+
+fn main() : Int / Console + Spawn + Link + Cancel = {
+  with_mailbox { run() }
+  0
+}
