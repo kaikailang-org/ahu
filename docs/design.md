@@ -3,14 +3,17 @@
 Living document for the kaikai-native concurrency and fault-tolerance
 framework that runs underneath manutara and friends.
 
-> **Status (2026-05-02):** Layer 2 (cells) and Layer 3 (restart
-> helpers) have shipped against kaikai 0.34.x — see PRs `#2`
-> and `#3`, retrospective in
-> `docs/lane-experience-ahu-tongariki-cells-restart.md`. Layer
-> 1 (streams) is paused on `lnds/kaikai#106` (missing
-> `core.list.map / filter / foldl` upstream). The full
-> Tongariki MVP — Layer 1 + `run_app` + the TCP echo
-> integration example — closes once that issue lands.
+> **Status (2026-05-02):** Layer 2 (cells), Layer 3 (restart
+> helpers), and Layer 1 (streams) have all shipped against
+> kaikai 0.35.x — see PRs `#2`, `#3`, and `#5`. Retrospective
+> for the cells + restart lanes lives in
+> `docs/lane-experience-ahu-tongariki-cells-restart.md`;
+> Layer 1 closed within a single commit because the heavy
+> lifting was done upstream by `lnds/kaikai#106`. The
+> remaining MVP pieces — `run_app` bootstrap and the TCP
+> echo integration example — are gated on `lnds/kaikai#107`
+> (Signal effect for graceful shutdown) and on lazy stream
+> sources for cross-fiber composition.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -173,68 +176,77 @@ recur, not a mandatory shell around every concurrent program.
 
 ### Layer 1 — Streams
 
-Reactive streams with typed values, demand-based backpressure, and
-visible effect rows. The shape comes from Reactive Streams (the
-JVM spec) and Akka Streams (the Scala implementation) — but
-adapted to kaikai's effect system.
+**ahu-Tongariki ships ZERO stream-layer code.** The pipeline
+combinators all live in kaikai's stdlib + language syntax; ahu's
+contribution at this layer is the canonical pipeline pattern
+plus a fixture demonstrating it with effectful callbacks.
+
+The building blocks are:
+
+| Piece | Where it lives |
+|---|---|
+| `[a..b]` range list literal | kaikai language (m7b sugar) |
+| `\|` map-pipe (`xs \| f` ≡ `list.map(xs, f)`) | kaikai language (m7b sugar) |
+| `\|>` apply-pipe | kaikai language |
+| `list.map`, `list.filter`, `list.foldl`, `list.foldr`, `list.foreach`, `list.length`, `list.reverse`, `list.zip`, `list.unzip` | kaikai stdlib `core.list` (closed by `lnds/kaikai#106` in 0.35.x) |
+
+Each higher-order helper carries a row-poly callback:
 
 ```kai
-# A Source produces values of type T, possibly with effects e.
-type Source[T, e]
-
-# A Flow transforms values of type A to values of type B.
-type Flow[A, B, e]
-
-# A Sink consumes values of type T, producing a materialised result R.
-type Sink[T, R, e]
-
-# Composition: |> is the canonical operator.
-let pipeline : Source[Request, Net] |> Flow[Request, Response, Db + Net] |> Sink[Response, Unit, Net] = ...
-
-# Running materialises the pipeline and produces the sink's R.
-let result : Unit / Net + Db + Spawn + Cancel = pipeline.run()
+list.map[a, b, e](xs: [a], f: (a) -> b / e) : [b] / e
 ```
 
-Combinators ship as ordinary functions on `Source` / `Flow` /
-`Sink` (sketched, surface bikeshed deferred to implementation):
+so effects flow through. The canonical pipeline is:
 
 ```kai
-# On Source:
-Source.from_list([1, 2, 3, 4])              : Source[Int, ∅]
-Source.repeat(value: T)                      : Source[T, ∅]
-Source.from_listener(port: Int)              : Source[Conn, Net]
-Source.tick(every: Duration)                 : Source[Tick, Clock]
+fn double_traced(x: Int) : Int / Console = {
+  Stdout.print("seen=" ++ int_to_string(x))
+  x * 2
+}
 
-# On Flow:
-flow.map(f: (A) -> B / e)                    : Flow[A, B, e]
-flow.filter(p: (A) -> Bool)                  : Flow[A, A, ∅]
-flow.flat_map(f: (A) -> Source[B, e])        : Flow[A, B, e]
-flow.throttle(per: Duration, rate: Int)      : Flow[A, A, Clock]
-flow.buffer(size: Int, on_full: Overflow)    : Flow[A, A, ∅]
-
-# On Sink:
-Sink.foreach(f: (T) -> Unit / e)             : Sink[T, Unit, e]
-Sink.fold(z: R, f: (R, T) -> R / e)          : Sink[T, R, e]
-Sink.collect()                               : Sink[T, [T], ∅]
+fn run() : Unit / Console = {
+  let total = [0..5]
+              | double_traced
+              |> list.filter(_, (x) => x > 5)
+              |> list.foldl(_, 0, (acc, x) => acc + x)
+  Stdout.print("total=" ++ int_to_string(total))
+}
 ```
 
-Backpressure is demand-based: each downstream stage signals how
-many elements it can accept; upstream stages produce only that
-many. A bounded buffer between stages is the default; the user
-chooses `BlockSender` / `DropOldest` / `DropNewest` (mirroring
-kaikai's mailbox `Overflow` enum) when explicit policy is needed.
+`Console` from `double_traced` flows through `|` (map-pipe over
+the range), survives the pure `list.filter` and `list.foldl`
+calls, and lands in `run`'s row. Effects-in-types holds without
+ahu adding any code.
 
-**Why streams as Layer 1, not as a side-library:**
+Reference fixture: `tests/stream_pipeline.kai` (output frozen
+in the sibling `.out.expected`).
 
-For most data-flow problems — request/response, batch processing,
-event broadcasting, parsing pipelines — streams are structurally
-the right tool. Modeling them as actors (one actor per stage) is
-work that the user has to redo every time. Akka split this off
-into Akka Streams and Phoenix did the same with `GenStage`; ahu
-takes that lesson upstream and ships streams as the first thing
-the framework provides. Cells (Layer 2) are for the cases streams
-do not cover — long-lived stateful entities with explicit
-addressable identity.
+**What this Layer is NOT (yet):**
+
+Lazy / unbounded sources do not fit the eager-list shape:
+
+- `Source.from_listener(port: Int)` — TCP listener that yields
+  connections indefinitely.
+- `Source.tick(every: Duration)` — periodic timer.
+- `Source.from_websocket(ws)` — stream of incoming frames.
+
+These need either upstream support for row-poly type
+parameters in records (so `Source[T, e]` becomes expressible)
+or a function-value-based encoding that composes through
+`|>` end-to-end. Both are post-Tongariki work. The TCP echo
+MVP target therefore uses an explicit nursery + per-connection
+cell (Layer 2) + restart wrapper (Layer 3) loop instead of a
+streamed source — see §End-to-end MVP verification.
+
+**Why ahu does not re-export `list.*` under `stream.*`:**
+
+The stdlib spelling stays canonical. Aliasing
+`stream.map` ≡ `list.map` would force users to remember which
+prefix ahu prefers without adding any expressive power.
+Convention is the cheaper fix: ahu code uses `list.*` directly
+plus the `[..]` / `|` / `|>` syntax. When lazy sources land,
+they get their own ahu module (`src/source.kai` or similar) —
+new surface, not aliases.
 
 ### Layer 2 — Cells
 
@@ -693,9 +705,9 @@ runs to completion against an unmodified kaikai checkout.
 
 ## External dependencies on kaikai
 
-### Closed (as of kaikai 0.34.0)
+### Closed (as of kaikai 0.35.x)
 
-Three blockers from the original design have closed upstream:
+Five blockers from the original design have closed upstream:
 
 1. **Blocking `Actor.receive()` on an empty mailbox.** Closed
    by kaikai m8.x runtime (landed v0.4.0; documentation
@@ -711,33 +723,26 @@ Three blockers from the original design have closed upstream:
    payloads.** Closed by kaikai PR #74 / issue #71 option (a)
    in v0.34.0 — the deep `TyBranded` walker now correctly
    detects sum-payload escape and admits the legitimate
-   ahu/stdlib patterns. (See *Open* below for the residual
-   piece.)
-
-Plus one bonus for ahu's reference example:
-
-4. **NetTcp v1** shipped in kaikai v0.33.0
-   (`stdlib/net/tcp.kai`). Layer 1's `Source.from_listener(port)`
-   has a real implementation target instead of a mock.
+   ahu/stdlib patterns.
+4. **`core.list` higher-order helpers.** Closed by
+   `lnds/kaikai#106` / PR #113 in 0.35.x. `core.list.map` /
+   `filter` / `foldl` / `foldr` / `foreach` / `length` /
+   `reverse` / `zip` / `unzip` all ship with row-poly
+   callbacks. Layer 1's pipeline shape ships against this
+   without ahu adding a stream module — see §Layer 1.
+5. **NetTcp v1.** Shipped in kaikai v0.33.0
+   (`stdlib/net/tcp.kai`). Once lazy stream sources land
+   post-Tongariki, `Source.from_listener(port)` will wrap the
+   `NetTcp` ops directly.
 
 ### Open (filed as upstream issues)
 
-Four concrete gaps surfaced during the Tongariki
-implementation lanes. Each is filed as a `lnds/kaikai` issue
-with a self-contained reproducer; ahu either ships a
-documented workaround or pauses the affected lane.
+Three concrete gaps remain open. Each is filed as a
+`lnds/kaikai` issue with a self-contained reproducer; ahu
+either ships a documented workaround or pauses the affected
+lane.
 
-1. **`lnds/kaikai#106` — `core.list` missing `map` / `filter`
-   / `foldl` / `foldr` / `length` / `reverse` / `zip` /
-   `unzip`.** `kaikai/docs/stdlib-layout.md` documents these
-   as the `core.list` v1 inventory; `stdlib/core/list.kai`
-   currently ships only `map_indexed` and `flat_map` from the
-   higher-order family. **Blocks Layer 1 entirely.** The
-   ahu-Tongariki streams layer ships once those functions
-   land; rolling them in ahu would create nominal collisions
-   with the eventual upstream surface.
-
-2. **`lnds/kaikai#107` — missing `Signal` effect for graceful
+1. **`lnds/kaikai#107` — missing `Signal` effect for graceful
    shutdown.** Kaikai's runtime installs a `SIGSEGV` handler
    internally for fiber-stack overflow detection but does
    not expose user-level signal trapping. **Blocks `run_app`

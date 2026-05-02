@@ -1,0 +1,44 @@
+# tests/stream_pipeline.kai — canonical ahu Layer 1 pipeline.
+#
+# ahu-Tongariki ships ZERO stream-layer code: the building
+# blocks all live in kaikai stdlib + language syntax:
+#
+#   [a..b]      — range list literal (kaikai 0.x.x)
+#   |           — map-pipe operator (m7b sugar)
+#   |>          — apply-pipe operator
+#   list.map / filter / foldl / foldr / foreach / ...
+#               — kaikai 0.35.x core.list higher-order helpers
+#                 (issue #106 closed in PR #113), each with a
+#                 row-poly callback so effects flow through.
+#
+# ahu's contribution at Layer 1 is convention plus this fixture
+# demonstrating the canonical shape with effectful callbacks.
+# `src/stream.kai` does not exist — there is nothing for ahu to
+# add at the eager-list-based level. Lazy/unbounded sources
+# (TCP listener, websocket frame generator, ticker) are
+# post-Tongariki work, gated on kaikai admitting row-poly type
+# parameters in records (so `Source[T, e]` becomes
+# expressible).
+#
+# Coverage:
+#   - `[0..N]` range list literal as the source.
+#   - `|` map-pipe carries an effectful callback (Console).
+#   - `|>` apply-pipe carries the result through filter and fold.
+#   - Effect row from `double_traced` propagates out to `main`.
+
+fn double_traced(x: Int) : Int / Console = {
+  Stdout.print("seen=" ++ int_to_string(x))
+  x * 2
+}
+
+fn greater_than_five(x: Int) : Bool = x > 5
+
+fn run() : Unit / Console = {
+  let total = [0..5] | double_traced |> filter(_, greater_than_five) |> foldl(_, 0, (acc, x) => acc + x)
+  Stdout.print("total=" ++ int_to_string(total))
+}
+
+fn main() : Int / Console = {
+  run()
+  0
+}
