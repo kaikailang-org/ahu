@@ -8,6 +8,31 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `docs/lane-experience-ahu-tongariki-cells-restart.md` —
+  consolidated retrospective for the Layer 2 (cells) and
+  Layer 3 (restart) implementation lanes (PRs `#2` and `#3`).
+  Documents what landed, what design discoveries updated the
+  spec, the four kaikai upstream issues filed during the
+  work (`#103`, `#104`, `#106`, `#107`), what worked well,
+  what did not, and what to do next.
+
+### Changed
+
+- `docs/design.md` §*External dependencies on kaikai*:
+  upgraded from "two open gaps" to "four open issues, each
+  with a `lnds/kaikai#NNN` cross-reference and a stated
+  ahu-side workaround". Adds the runs-on-cleanup-lane
+  finding `#107` (missing `Signal` effect — blocks
+  `run_app`) alongside the three issues filed during the
+  cells + restart lanes (`#103` / `#104` / `#106`).
+  Status header at the top of the doc updated to show
+  the Tongariki MVP is structurally 60% done with the
+  remaining 40% upstream-gated.
+- `docs/design.md` §*End-to-end MVP verification*: command
+  trace updated to use `make tier1` (which works today
+  against the Layer 2 + Layer 3 fixtures) and to flag the
+  TCP echo step as gated on Layer 1 / `lnds/kaikai#106`.
+
 - `src/restart.kai` — Layer 3 implementation. `RestartPolicy`
   (`Permanent` / `Transient` / `Temporary`), `RestartLimit(Int)`,
   `Outcome` (`Completed` / `Escalated`), `default_limit`, and
