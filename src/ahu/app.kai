@@ -1,0 +1,55 @@
+# src/ahu/app.kai — ahu Tongariki bootstrap.
+# Imported by user code as `import ahu.app`; functions are
+# accessed dotted (`app.run_app(root)`).
+#
+# `run_app(root)` is the canonical entry point for a long-
+# running ahu application:
+#
+#   1. Subscribe to SIGINT and SIGTERM via the kaikai `Signal`
+#      effect (`docs/effects-stdlib.md` §Signal — landed in
+#      kaikai 0.36.x via PR #116, `lnds/kaikai#107`).
+#   2. Spawn `root` as a child fiber.
+#   3. Park on `Signal.await()` until SIGINT or SIGTERM fires.
+#   4. Cancel the root fiber so its `Cancel` handlers (e.g.
+#      cell `terminate`-equivalent cleanup) run before the
+#      process exits.
+#   5. Unsubscribe from the signals — symmetric with step 1.
+#
+# The shape mirrors the "Typical use" sketch in
+# `kaikai/docs/effects-stdlib.md` §Signal which the kaikai
+# integrator pinned as the target ahu's `run_app` would wrap.
+#
+# v1 limitations inherited from kaikai's Signal effect:
+#
+#   - `Signal.await()` blocks the OS thread. Workers spawned
+#     before the await can run only between scheduler yields
+#     (NetTcp ops, fiber_yield calls) — they do not get true
+#     concurrent CPU. Reactor-driven non-blocking integration
+#     waits on kaikai m8.x.
+#   - Posix-only. Windows / WASM signal mapping arrives with
+#     the rest of the cross-platform port.
+#
+# Tier 1 fixture coverage: `run_app` itself is not exercised
+# in the diff-style fixture loop because sending SIGINT to
+# the running test binary requires an external harness. The
+# `examples/echo/` integration target (future lane) demonstrates
+# the function under a real-traffic scenario.
+
+import spawn
+
+# Run an ahu application until the user sends SIGINT / SIGTERM.
+# `root` is the application body; it runs as a child fiber while
+# `run_app` parks the main fiber on the signal channel. When the
+# signal arrives, `root` is cancelled cooperatively; its
+# Cancel handlers (cell loops, restart wrappers) unwind and
+# the process exits with status 0.
+pub fn run_app[e](root: () -> Unit / Cancel + e) : Unit / Spawn + Signal + Cancel + Console + e = {
+  let _ = Signal.on(SigInt)
+  let _ = Signal.on(SigTerm)
+  let root_fiber = fiber_spawn(root)
+  let _ = Signal.await()
+  Stdout.print("ahu: shutting down")
+  let _ = fiber_cancel(root_fiber)
+  let _ = Signal.off(SigInt)
+  let _ = Signal.off(SigTerm)
+}
