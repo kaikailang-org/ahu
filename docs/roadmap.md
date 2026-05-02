@@ -1,38 +1,46 @@
 # ahu roadmap
 
-Pinned 2026-05-02 alongside the initial design lane. Names follow
-the Rapa Nui convention shared across the lnds ecosystem
-(`kaikai/docs/roadmap.md` §*Meta-roadmap*): Tongariki → Anga Roa →
-Orongo → Anakena tracks the arc from public face → daily life →
-ceremonial culmination → horizon beyond.
+Pinned 2026-05-02 alongside the design pivot. Names follow the
+Rapa Nui convention shared across the lnds ecosystem
+(`kaikai/docs/roadmap.md` §*Meta-roadmap*): Tongariki → Anga Roa
+→ Orongo → Anakena tracks the arc from public face → daily life
+→ ceremonial culmination → horizon beyond.
 
 This document is the milestone series for ahu specifically. The
 ecosystem-wide meta-roadmap (where ahu sits relative to kaikai,
 ahu-db, ahu-ddd, manutara) lives upstream in
 `kaikai/docs/roadmap.md`.
 
+> **Pivot note (2026-05-02).** This roadmap was rewritten when
+> the design pivoted from OTP-style to streams + cells +
+> restart-helpers. Milestone *names* (Tongariki / Anga Roa /
+> Orongo / Anakena) are unchanged; *scope per milestone* was
+> rewritten to match the new design. See
+> `docs/lane-experience-ahu-design.md` for rationale.
+
 ## Status snapshot
 
-- **HEAD**: `0f30f40 ahu: M1 — initial repository scaffolding` (no
-  implementation; design lane in flight on `ahu-design-v1`).
-- **Current target**: `ahu-Tongariki` (MVP definition). The design
-  itself lives in `docs/design.md`.
+- **HEAD**: `350b7a6 ahu: M4 — roadmap.md ...` (about to be
+  superseded by this rewrite). No implementation; design lane
+  in flight on `ahu-design-v1`.
+- **Current target**: `ahu-Tongariki` (MVP definition). The
+  design itself lives in `docs/design.md`.
 - **Cross-cutting principles** (per `CLAUDE.md`, inherited from
   kaikai):
-  - Tier 1 #1 (effects in types) — covered by ahu's row-polymorphic
-    callback shape; defendible.
+  - Tier 1 #1 (effects in types) — covered by row-polymorphic
+    cell signatures (`Cell[Msg, e]`) and stream stage signatures
+    (`Source[T, e]`, etc.); defendible.
   - Tier 1 #2 (runtime efficiency) — depends on kaikai
-    monomorphising `BehaviorSpec` records per use site; not yet
+    monomorphising the recursive-function shape of cells and
+    the type-parameterised stream combinators; not yet
     measured.
-  - Tier 1 #3 (fast compilation) — ahu does not introduce
-    constraint solvers, HKTs, or row-polymorphic dispatch beyond
-    what kaikai already provides; defendible.
+  - Tier 1 #3 (fast compilation) — ahu introduces no new
+    constraint solvers, no HKTs, no row polymorphism in
+    constraint position. Defendible.
 - **Upstream blockers for implementation**: see
-  `docs/design.md` §*External dependencies on kaikai* — the
-  blocking-receive and `BlockSender` paths require kaikai m8.x's
-  cooperative scheduler; until then the ahu-Tongariki
-  implementation lane stays scoped to fixtures that match the
-  inline-eager scheduler.
+  `docs/design.md` §*External dependencies on kaikai* — same
+  three gaps as before (blocking-receive, `BlockSender`
+  delivery, effect-row through record fields).
 
 ## Milestones — ahu framework
 
@@ -44,145 +52,164 @@ constraint against upstream kaikai, and one optimisation thread
 
 The 15-moai platform: the public face. Ship the framework with
 the minimum surface that lets early adopters write a real
-supervised application and recognise the result as
-"OTP for kaikai".
+streaming server and recognise the result as
+"kaikai-native concurrency infrastructure".
 
-**Scope** (per `docs/design.md` §*Decision 6*):
+**Scope** (per `docs/design.md` §*Decision 7*):
 
-- `src/behavior.kai` — the `BehaviorSpec` record, the
-  `BehaviorMsg[Call, Cast]` envelope, `start_behavior`
-  constructor, the canonical receive loop dispatching `Call` /
-  `Cast` / `Down`, and `terminate` invocation on shutdown.
-- `src/supervisor.kai` — `SupervisorSpec`, `ChildSpec`,
-  `RestartPolicy` (`Permanent` / `Transient` / `Temporary`),
-  `ShutdownTimeout`, `intensity / period` with sensible defaults
-  (5 / 60 as a starting heuristic), `start_supervisor`,
-  `one_for_one` strategy.
-- `src/application.kai` — `Application` shape, `SIGINT` /
-  `SIGTERM` graceful-shutdown wiring, root supervisor lifecycle,
-  exit-code propagation.
-- `examples/counter/` — counter behavior under a supervisor,
-  driven by an application. Shows callback effect rows
-  (`Console.print(...)` for trace lines), supervisor restart on
-  intentional crash, application graceful shutdown.
-- `tests/` — Tier 1 fixtures listed under `docs/design.md`
-  §*Test criteria*: init-once, call/cast/down delivery, terminate
-  on crash, one_for_one restart, transient-vs-permanent, root
-  supervisor signal handling.
-- `Makefile` — `make tier0` (selfhost the design / typecheck
-  src/) and `make tier1` (Tier 1 fixtures via `kai test`).
-- *Optimisation thread for this milestone*: callback specialisation.
-  Confirm the kaikai compiler monomorphises the `BehaviorSpec`
-  record and inlines each callback at the dispatch site so a
-  behavior with one Cast handler costs the same as a hand-rolled
-  receive loop. If it does not, file an upstream issue against
-  kaikai's monomorphisation and gate on the fix.
+- **Layer 1 — Streams** (`src/stream.kai`).
+  - Types: `Source[T, e]`, `Flow[A, B, e]`, `Sink[T, R, e]`.
+  - Constructors: `Source.from_list`, `Source.repeat`,
+    `Source.from_listener` (TCP), `Source.tick`.
+  - Flow combinators: `map`, `filter`, `flat_map`, `merge`,
+    `throttle`, `buffer` (with `Overflow` policy mirroring
+    kaikai's mailbox enum).
+  - Sinks: `Sink.foreach`, `Sink.fold`, `Sink.collect`.
+  - Demand-based backpressure end-to-end.
+  - Composition operator: `|>` (kaikai's existing apply-pipe).
+  - `Stream.run(pipeline)` materialises a Source-...-Sink pipeline.
+
+- **Layer 2 — Cells** (`src/cell.kai`).
+  - Type: `Cell[Msg, e]` (a closure in the recursive function
+    shape).
+  - `start_cell(body) : Pid[Msg]` constructor.
+  - `done()` and `stop(pid)` for normal termination.
+  - The `receive { ... }` form desugaring to `Actor.receive()`
+    + match.
+
+- **Layer 3 — Restart helpers** (`src/restart.kai`).
+  - `RestartPolicy = Permanent | Transient | Temporary`.
+  - `RestartLimit = { intensity, period }` with default
+    `5 / 60s`.
+  - `with_restart(policy, limit, body)` for arbitrary fiber
+    bodies.
+  - `restartable_cell(policy, limit, body)` for cells.
+
+- **Bootstrap** (`src/app.kai`).
+  - `run_app(root) : Unit` — installs `SIGINT` / `SIGTERM`
+    handlers, opens root nursery, runs root inside, blocks on
+    signal, propagates cancellation.
+
+- **Reference example** (`examples/echo/main.kai`).
+  - TCP echo server: `Source.from_listener(8080)` +
+    `Flow.flat_map` (per-connection nursery) + per-connection
+    cell holding session state. `restartable_cell` wrapping
+    the listener loop. `run_app` at top.
+
+- **Tests** (`tests/`). Tier 1 fixtures:
+  - Stream end-to-end: list-source through map+filter through
+    collect-sink → expected list.
+  - Backpressure: producer faster than consumer with
+    `BlockSender` buffer → producer parks; with `DropOldest`
+    → producer continues, oldest dropped.
+  - Cell lifecycle: start, send, receive reply, stop.
+  - Cell crash: panic during message handling triggers
+    `restartable_cell` retry under `Permanent`.
+  - Restart limits: 6 panics in 60s with `5/60s` limit
+    escalates the wrapper.
+  - Application: `run_app` boots, blocks, exits 0 on SIGINT.
+
+- **CI** (`Makefile` + `.github/workflows/tier1.yml`).
+  - `make tier0` — `kai build` + cheap unit tests (~30–60s).
+  - `make tier1` — Tier 0 + integration fixtures (~2–5min).
+
+- **Optimisation thread**: stream-stage fusion. Kaikai's
+  monomorphisation should fuse adjacent `Flow.map` /
+  `Flow.filter` calls into a single transformer when the types
+  permit, eliminating intermediate allocations. If the kaikai
+  compiler does not do this automatically, file an upstream
+  issue rather than implementing fusion in ahu.
 
 **Definition of Done**:
 
 1. `kai build` cleanly compiles `src/`, `tests/`, and
-   `examples/counter/`.
-2. `kai test tests/` is green (Tier 1 fixtures all pass).
-3. The end-to-end command from `docs/design.md` §*End-to-end MVP
-   verification* runs to completion:
+   `examples/echo/`.
+2. `kai test tests/` is green.
+3. The end-to-end command from `docs/design.md` §*End-to-end
+   MVP verification* runs:
    ```sh
    kai build && kai test tests/ && \
-   kai run examples/counter/main.kai &
-   sleep 1 && kill -INT $! && wait
-   # exit code 0
+   kai run examples/echo/main.kai &
+   sleep 1 && echo ping | nc localhost 8080 | grep -q ping && \
+   kill -INT $! && wait
    ```
-4. CI green on every PR and on every push to `main`. The CI shape
-   mirrors kaikai's `tier1.yml` and runs `make tier0 && make
-   tier1`.
-5. CLAUDE.md Tier 1 closure remains defendible — no new footnotes,
-   no new "we lied" entries.
-6. `docs/design.md` and `docs/roadmap.md` Status snapshots both
+4. CI green on every PR and on every push to `main`.
+5. CLAUDE.md Tier 1 closure remains defendible.
+6. `docs/design.md` and `docs/roadmap.md` Status snapshots
    updated to show ahu-Tongariki shipped.
 
 **Sequencing**:
 
 - **Cannot start until**: kaikai m8.x ships the cooperative
-  scheduler (so blocking `Actor.receive()` and `BlockSender`
-  work). Until then, ahu-Tongariki implementation can scope
-  fixtures to the inline-eager scheduler subset, but the
-  end-to-end DOD requires the full scheduler.
-- **Recommended start gate**: `kaikai-Tongariki` shipped. That
-  gives `kai test`, `kai check`, `kai bench`, `kai fmt` available
-  for ahu development from day one.
-- **Unlocks downstream**: `ahu-db-Tongariki` can start once
-  ahu-Tongariki ships.
+  scheduler (blocking `receive`, `BlockSender` delivery).
+- **Recommended start gate**: `kaikai-Tongariki` shipped
+  (gives `kai test`, `kai check`, `kai bench`, `kai fmt`).
+- **Unlocks downstream**: `ahu-db-Tongariki` can start.
 
-**Estimated cost**: ~3–4 weeks of agent work distributed across
-~3 lanes (behavior + tests, supervisor + tests, application +
-counter example + CI).
+**Estimated cost**: ~4–6 weeks across ~3 lanes (streams +
+tests, cells + restart + tests, app + echo + CI).
 
 ### Anga Roa — pre-1.0
 
 "Hanga Roa" — the village where life happens. Polish the
-framework to where teams (not just hobbyists) build production
-systems with it.
+framework to where teams build production systems with it.
 
 **Scope**:
 
-- **Other supervision strategies** — `one_for_all`,
-  `rest_for_one`, `simple_one_for_one`. Each in its own sub-lane.
-  The first two require modelling child startup-order as
-  load-bearing; `simple_one_for_one` requires dynamic child
-  specs and pulls in registry design (next bullet).
-- **Process registry** — the proper shape decided with usage
-  data from ahu-Tongariki users. Leading candidate per
-  `docs/design.md` §*Decision 3*: per-nursery `Registry`
-  capability with explicit handoff for cross-supervisor sharing.
-  Final shape pinned in a dedicated design doc
-  (`docs/registry.md`) at the start of this milestone.
-- **Specialised behaviours** — `Agent` (single-state value with
-  get/update API), `Task` (one-shot computation with `await`),
-  `GenStateMachine` (FSM-shaped behaviour). Each is a layer on
-  top of `Behavior` — no new primitives, just specialisations
-  with smaller surfaces. Designed only after at least three
-  ahu-Tongariki demos exist showing the underlying pattern.
-- **Diagnostic surface** — pretty `terminate` traces, supervision
-  tree dump on `SIGUSR1` (or kaikai equivalent), structured
-  JSON output for behavior-startup events. Plugs into
-  kaikai-Anga Roa's `kai lsp` / `m11 diagnostics quality pass`
-  contract.
-- **Reference applications** — beyond `counter`: a request/reply
-  worker pool, a back-pressured pipeline using `BlockSender`,
-  a keepalive-style health-check supervisor. These ship in
-  `examples/` and double as integration fixtures.
-- *Optimisation thread*: scheduler-aware mailbox sizing.
-  Profile real ahu-Anga Roa applications and tune the default
-  mailbox capacity (currently TBD — likely `1024` per the kaikai
-  `spawn_actor_default` shape) to whatever the data shows.
+- **Process registry** — per-nursery `Registry` capability,
+  designed in a dedicated `docs/registry.md` at the start of
+  this milestone. Decided shape pinned with usage data from
+  ahu-Tongariki users.
+- **Cell.ask helper** — synchronous request/reply pattern as
+  a first-class function over the `with_mailbox` shape, if
+  Tongariki demos show the pattern is common.
+- **Pool helper** — `pool(n, body) : Pid[Msg]` that spawns N
+  identical workers under a nursery and round-robins
+  messages. Trivial layer over Tongariki primitives, ships
+  only if the pattern recurs.
+- **Stream extensions** — windowing (`Flow.window`), grouping
+  (`Flow.group_by`), broadcast / fanout, error-recovery
+  combinators (`Flow.recover_with`).
+- **Diagnostic surface** — pretty restart traces, cell-tree
+  dump on `SIGUSR1`, structured JSON output for restart
+  events. Plugs into `kaikai-Anga Roa`'s `kai lsp` and
+  diagnostic JSON contract.
+- **Reference applications** — beyond `echo`: a websocket
+  chat server using cells per session + a broadcast stream;
+  a back-pressured ETL pipeline reading a file and writing
+  to stdout with explicit `Bounded(c, BlockSender)` buffers.
+- **Optimisation thread** — stream-stage fusion measurement:
+  benchmark the fused vs unfused pipelines and either
+  confirm the kaikai compiler does its job or file the
+  upstream gap.
 
 **Definition of Done**:
 
-1. All four restart strategies (`one_for_one`, `one_for_all`,
-   `rest_for_one`, `simple_one_for_one`) ship with fixtures.
-2. `Registry` capability shape pinned and implemented; ahu
+1. `Registry` capability shape pinned and implemented;
    programs can register and look up Pids within the right
    scope.
-3. At least one specialised behaviour (`Agent` is the strongest
-   candidate) ships behind a small wrapper over `Behavior`.
-4. `kai lsp`-driven editor shows correct callback signatures on
-   hover for `BehaviorSpec` fields.
-5. `make daily` (Tier 2) runs nightly stress fixtures: 1k-child
-   supervisor, mailbox saturation under `BlockSender`, link
-   cascade, `Transient` vs `Permanent` restart-storm window.
+2. At least one of (`Cell.ask`, `pool`) ships if Tongariki
+   demos exercised the pattern; otherwise neither, with
+   rationale documented.
+3. Stream extension combinators ship with fixtures.
+4. `kai lsp`-driven editor shows correct combinator type
+   signatures on hover.
+5. `make daily` (Tier 2) runs nightly stress fixtures:
+   1k-cell pool with random restarts, stream throughput
+   under saturation, registry under churn.
 
 **Sequencing**:
 
-- **Cannot start until**: `ahu-Tongariki` shipped and at least
-  one downstream user (probably `ahu-db-Tongariki`) has reported
-  back from real use.
-- **Recommended start gate**: `kaikai-Anga Roa` shipped. That
-  gives `kai lsp` for the diagnostic deliverable.
-- **Unlocks downstream**: nothing new beyond what
-  `ahu-Tongariki` already unlocked. `ahu-db-Anga Roa` and
-  `manutara` can begin in parallel against either ahu milestone.
+- **Cannot start until**: `ahu-Tongariki` shipped and at
+  least one downstream user (likely `ahu-db-Tongariki`) has
+  reported back from real use.
+- **Recommended start gate**: `kaikai-Anga Roa` shipped
+  (provides `kai lsp` for the diagnostic deliverable).
+- **Unlocks downstream**: nothing new beyond what Tongariki
+  unlocked.
 
 **Estimated cost**: ~6–8 weeks. Registry design is the long
-pole; the three new strategies parallelise.
+pole.
 
 ### Orongo — 1.0.0
 
@@ -192,101 +219,87 @@ footnotes.
 
 **Scope**:
 
-- **Distributed actors** — cross-node Pids, node-up / node-down
-  events, distributed supervision, handoff protocols. Depends on
-  kaikai's `Serialize` protocol covering records and sum types
-  (currently scoped post-m12.8 in
-  `kaikai/docs/protocols.md` §*Stdlib protocols* row 5). Designed
-  in a dedicated `docs/distributed-actors.md` upstream first
-  (kaikai), then layered into ahu via a new `RemoteBehavior`
-  abstraction and a `RemotePid[Msg]` distinct type that respects
-  region-brand at node boundaries.
+- **Distributed cells and streams** — cross-node Pids
+  (`RemotePid[Msg]` distinct type), distributed sources /
+  sinks (a stream stage on node A feeding a stage on node
+  B). Depends on kaikai's `Serialize` protocol covering
+  records and sum types (post-m12.8). Designed in
+  `docs/distributed-ahu.md` at the start of this milestone.
 - **Failure detector** — heartbeat protocol, configurable
-  timeouts, partition handling. Reuses whichever shape
-  `docs/distributed-actors.md` lands upstream.
-- **Telemetry / observability hooks** — every behavior emits a
-  structured event for start, callback enter/exit, mailbox depth,
-  termination cause. Drains into a `Telemetry` effect that
-  programs can handle to log, trace, or dispatch into
-  metrics. Ties into kaikai-Orongo's profiling tooling.
-- **Multi-thread scheduler awareness** — kaikai-Orongo ships a
-  work-stealing scheduler across N OS threads (per
-  `kaikai/docs/roadmap.md` §*Orongo*). ahu must verify that
-  cross-thread mailbox messages still respect typing and that
-  supervisor restart is safe under concurrent fault delivery.
-- *Optimisation thread*: cross-fiber unboxed messages.
-  Coordinate with kaikai-Orongo's Tier 3b unboxing — `Cast`
-  payloads of primitive types should not box on the way through
-  the mailbox.
+  timeouts, partition handling.
+- **Telemetry effect** — every cell emits a structured event
+  for start, message-handled, restart, terminate; every
+  stream stage emits per-element / per-batch events. Drains
+  through a `Telemetry` effect that programs handle to log,
+  trace, or push to metrics.
+- **Multi-thread scheduler awareness** — `kaikai-Orongo`
+  ships work-stealing across N OS threads. ahu must verify
+  that cross-thread mailbox messages, restart wrappers, and
+  stream stages remain correct under concurrent fault
+  delivery.
+- **Optimisation thread** — cross-fiber unboxed messages.
+  Coordinate with kaikai-Orongo's Tier 3b unboxing — cell
+  message payloads of primitive types should not box on the
+  way through the mailbox.
 
 **Definition of Done**:
 
-1. `RemotePid[Msg]` shape pinned, implemented, and exercised by
-   a 2-node cross-machine integration test.
-2. Distribution failure detector running under controlled
+1. `RemotePid[Msg]` shape pinned, implemented, exercised by a
+   2-node integration test.
+2. Distributed stream demonstrably works across nodes with
+   backpressure preserved.
+3. Failure detector running under controlled
    network-partition fixture.
-3. Telemetry effect installed at default Application boot;
-   structured events round-trip through a sample handler that
-   prints them to stdout.
-4. Tier 1 #1, #2, #3 fully defendible without new footnotes.
+4. Telemetry effect installed at `run_app` boot;
+   round-trips through a sample handler.
 5. `kaikai-Orongo` integration: ahu programs build under
    `--emit=llvm` with no perf regression vs `--emit=c`.
 
 **Sequencing**:
 
-- **Cannot start until**: `kaikai-Orongo` is in flight. The
-  `Serialize` protocol gap, the multi-thread scheduler, and the
-  cross-fiber unboxing all land upstream first.
-- **Unlocks downstream**: `manutara-Orongo` can rely on a
+- **Cannot start until**: `kaikai-Orongo` is in flight
+  (Serialize for records, multi-thread scheduler,
+  cross-fiber unboxing all upstream).
+- **Unlocks downstream**: `manutara-Orongo` can rely on
   distributed ahu.
 
-**Estimated cost**: ~3–4 months. Distribution is the long pole;
-telemetry and multi-thread integration parallelise.
+**Estimated cost**: ~3–4 months. Distribution is the long pole.
 
 ### Anakena — post-1.0 horizon
 
-The historical landing beach of Hotu Matu'a — the
-horizon-facing milestone. Reach beyond the founding platforms.
+The horizon-facing milestone. Reach beyond the founding
+platforms.
 
 **Scope**:
 
 - **Cross-platform support** — Linux arm64, macOS x86_64,
-  Windows. Depends on kaikai-Anakena making each a first-class
-  target.
-- **WASM target** — ahu running in the browser is a real ask
-  once kaikai-Anakena ships WASM. Limited surface (no
-  signal handlers, no FFI to libc, single-thread by
-  construction); ahu adapts where it can and documents the
-  reduced contract elsewhere.
-- **Per-target performance tuning** — aarch64-specific behavior
-  dispatch, WASM-size optimisation for the framework runtime
-  footprint.
+  Windows. Depends on kaikai-Anakena.
+- **WASM target** — ahu running in browser. Limited
+  surface (no signal handlers, no FFI to libc, single-thread
+  by construction); ahu adapts where it can and documents
+  the reduced contract.
+- **Per-target performance tuning**.
 - **Extended observability** — flame-graph integration with
   whatever profiling story kaikai-Anakena pins.
-- **Package manager integration** — once kaikai-Anakena ships
-  `kai new` / `kai add`, the ahu library publishes to that
-  registry as the canonical install path. Until then, vendoring
-  via git submodule is the documented workflow.
-- *Optimisation thread*: same as kaikai-Anakena — close the gap
-  between `--emit=c` and `--emit=llvm` for ahu programs across
-  every supported target.
+- **Package manager integration** — once kaikai-Anakena
+  ships `kai new` / `kai add`, ahu publishes to the
+  registry as the canonical install path.
+- **Optimisation thread** — close `--emit=c` / `--emit=llvm`
+  gap for ahu programs across every target.
 
 **Definition of Done**:
 
-1. CI matrix runs all 5 platforms (the founding two plus Linux
-   arm64, macOS x86_64, Windows, plus WASM as a separate path).
-2. `kai add ahu` works against the kaikai package registry once
+1. CI matrix runs all 5 platforms.
+2. `kai add ahu` works against the registry once
    kaikai-Anakena ships it.
-3. ahu telemetry integrates with whichever profiling tool
-   kaikai-Anakena standardises on.
+3. ahu telemetry integrates with the kaikai profiling
+   tooling.
 
 **Sequencing**:
 
-- **Cannot start until**: `kaikai-Anakena` is in flight. Each
-  platform target is its own sub-lane upstream first.
+- **Cannot start until**: `kaikai-Anakena` is in flight.
 
-**Estimated cost**: variable / ongoing — each platform is its
-own sub-lane, gated on kaikai-Anakena's matrix.
+**Estimated cost**: variable / ongoing per platform.
 
 ## Sequencing summary
 
@@ -294,22 +307,17 @@ own sub-lane, gated on kaikai-Anakena's matrix.
 |---|---|---|
 | `ahu-Tongariki` | `kaikai-Tongariki` shipped + kaikai m8.x cooperative scheduler in main | `ahu-db-Tongariki` |
 | `ahu-Anga Roa` | `ahu-Tongariki` shipped + 1+ downstream user feedback + `kaikai-Anga Roa` shipped (for `kai lsp`) | `ahu-db-Anga Roa`; manutara can run against either ahu milestone |
-| `ahu-Orongo` | `kaikai-Orongo` in flight (Serialize for records, multi-thread scheduler, cross-fiber unboxing all upstream) | `manutara-Orongo` |
+| `ahu-Orongo` | `kaikai-Orongo` in flight (Serialize for records, multi-thread scheduler, cross-fiber unboxing) | `manutara-Orongo` |
 | `ahu-Anakena` | `kaikai-Anakena` in flight (cross-platform matrix) | downstream Anakena milestones |
 
 Each downstream project does not wait for ahu's 1.0.0 — it
 waits for ahu's Tongariki at minimum (the same rule kaikai's
-roadmap pins for the meta-stack). This unlocks parallelism
-across the lnds tree once each layer's MVP ships.
+roadmap pins for the meta-stack).
 
 ## What this doc is NOT
 
-- Not the roadmap for ahu-db, ahu-ddd, or manutara. Each owns its
-  own `docs/roadmap.md` once the project starts.
-- Not a calendar. Estimates assume each milestone has its primary
-  agent focus; parallel work shifts the cost.
-- Not a contract. Scope shifts item-by-item as upstream kaikai
-  decisions and downstream consumer needs evolve.
-- Not exhaustive. Items not listed (telemetry detail, specific
-  `Registry` shape, distribution wire format) get their own
-  design doc when they become load-bearing.
+- Not the roadmap for ahu-db, ahu-ddd, or manutara.
+- Not a calendar.
+- Not a contract.
+- Not exhaustive — items not listed get their own design doc
+  when they become load-bearing.
