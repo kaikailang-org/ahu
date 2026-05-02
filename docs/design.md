@@ -13,13 +13,13 @@ framework that runs underneath manutara and friends.
 > - `lnds/kaikai#107` (Signal effect for graceful shutdown)
 >
 > Layer 2 (cells), Layer 3 (restart helpers + `restartable_cell`
-> combined helper), and Layer 1 (streams) have all shipped.
-> `with_restart` uses BEAM-faithful `Cancel.raise()` for
-> escalation. `restartable_cell` boots a cell under restart
-> supervision with state-reset-on-restart semantics. The
-> remaining ahu-Tongariki work — `run_app` bootstrap and the
-> TCP echo integration example — is upstream-unblocked
-> (`#107` closed) and queues as the next lanes.
+> combined helper), Layer 1 (streams), and the `run_app`
+> bootstrap have all shipped. `with_restart` uses BEAM-faithful
+> `Cancel.raise()` for escalation. `restartable_cell` boots a
+> cell under restart supervision with state-reset-on-restart
+> semantics. `run_app` parks on `Signal.await()` and cancels
+> root cleanly on Ctrl-C. The remaining ahu-Tongariki work —
+> the TCP echo integration example — is the final piece.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -671,10 +671,21 @@ ahu-Tongariki should absorb.
 3. **Layer 3 — Restart helpers.** `RestartPolicy`,
    `RestartLimit`, `with_restart`, `restartable_cell`.
    Default limit `5 / 60s`.
-4. **Bootstrap helper.** `run_app(root: () -> Unit / e) : Unit`
-   installs `SIGINT` / `SIGTERM` handlers, opens a root
-   nursery, runs `root` inside it, blocks on signal, propagates
-   cancellation through the tree.
+4. **Bootstrap helper.** `app.run_app(root)` (in
+   `src/ahu/app.kai`, imported as `import ahu.app`) subscribes
+   to `SIGINT` / `SIGTERM` via the kaikai `Signal` effect
+   (`lnds/kaikai#107`, landed 0.36.x), spawns `root` as a child
+   fiber, parks on `Signal.await()` until either signal fires,
+   then cancels the root fiber so its `Cancel` handlers run
+   before the process exits. Type signature:
+   ```kai
+   pub fn run_app[e](root: () -> Unit / Cancel + e)
+     : Unit / Spawn + Signal + Cancel + Console + e
+   ```
+   v1 inherits the kaikai Signal limitation that `Signal.await()`
+   blocks the OS thread — workers spawned before the await run
+   only at scheduler yield points. Reactor-driven non-blocking
+   integration arrives in kaikai m8.x.
 5. **Reference example.** `examples/echo/` — a tiny TCP echo
    server using `Source.from_listener` + `Flow.flat_map` to
    handle each connection inside a per-connection nursery.
