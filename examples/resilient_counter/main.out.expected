@@ -1,0 +1,5 @@
+supervisor: starting resilient counter (Permanent, Limit(3))
+driver: cell at 3 — simulating fault
+driver: cell at 3 — simulating fault
+driver: cell at 3 — simulating fault
+supervisor: counter died too many times, giving up

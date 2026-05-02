@@ -12,14 +12,19 @@ framework that runs underneath manutara and friends.
 > - `lnds/kaikai#106` (core.list higher-order helpers)
 > - `lnds/kaikai#107` (Signal effect for graceful shutdown)
 >
-> Layer 2 (cells), Layer 3 (restart helpers + `restartable_cell`
-> combined helper), Layer 1 (streams), and the `run_app`
-> bootstrap have all shipped. `with_restart` uses BEAM-faithful
-> `Cancel.raise()` for escalation. `restartable_cell` boots a
-> cell under restart supervision with state-reset-on-restart
-> semantics. `run_app` parks on `Signal.await()` and cancels
-> root cleanly on Ctrl-C. The remaining ahu-Tongariki work —
-> the TCP echo integration example — is the final piece.
+> Layer 2 (cells), Layer 3 (restart helpers +
+> `restartable_cell`), Layer 1 (streams), `run_app`
+> bootstrap, and the integration examples
+> (`examples/echo/`, `examples/resilient_counter/`,
+> `examples/pipeline/`) have all shipped. `with_restart`
+> uses BEAM-faithful `Cancel.raise()` for escalation;
+> `restartable_cell` boots a cell under restart supervision
+> with state-reset semantics; `run_app` is a v1 placeholder
+> until kaikai's reactor (m8.x scope) lands the
+> Signal-based graceful-shutdown integration. The TCP echo
+> demo runs end-to-end against `nc` on localhost; the other
+> two examples diff their stdout against frozen
+> `.out.expected` in tier1.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
