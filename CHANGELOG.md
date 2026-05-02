@@ -8,6 +8,49 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `examples/echo/main.kai` — TCP echo server demo combining
+  all four ahu layers + kaikai stdlib primitives (NetTcp v1,
+  Signal placeholder via run_app). Per-session counter cell
+  tracks frame count; `with_restart(Permanent, ...)` wraps
+  the listener loop. Compile-only fixture in tier1
+  (interactive server cannot enter the diff loop); verified
+  manually via `nc 127.0.0.1 8080`.
+- `examples/resilient_counter/main.kai` — Layer 3 fault-
+  tolerance demo. A fragile driver crashes deterministically
+  every cycle; `restartable_cell(Permanent, Limit(3), ...)`
+  retries the driver three times each with fresh state, then
+  the outer Cancel handler observes escalation. Output trace
+  verifies state-reset-between-restarts (the cell counts to
+  3 every cycle, never accumulates) and BEAM-faithful
+  Cancel-based escalation.
+- `examples/pipeline/main.kai` — Layer 1 ETL demo. Range
+  literal `[1..10]` flows through `square` (effectful map),
+  `list.filter`, `label` (effectful map), `list.foldl`. Sum
+  of even squares = 220. Demonstrates the canonical
+  `[..]` / `|` / `|>` / `list.X` shape with effects flowing
+  through callbacks.
+- Makefile: `TIER1_SKIP_RUN` list lets the compile gate
+  cover an example whose runtime test cannot fit the diff
+  loop (currently just `echo`). Such examples still get a
+  "compile-only OK" line in tier1 output.
+
+### Changed
+
+- **`run_app` simplified to v1 placeholder.** PR #9 shipped
+  `run_app` with the kaikai-doc-pinned shape (Signal.on +
+  Signal.await + cancel root on signal). Empirical testing
+  during this lane revealed that under v1's Signal effect,
+  `Signal.await()` blocks the OS thread *before* spawned
+  workers get scheduled — root never starts. The kaikai
+  doc itself flags this: *"Other fibers cannot make progress
+  while it is parked"*. Reactor-driven non-blocking
+  integration is m8.x scope. ahu's `run_app` reverts to a
+  thin pass-through (`run_app(root) = root()`) so user code
+  can wrap its entry point today and inherit the Signal-based
+  shutdown behaviour transparently when the upstream reactor
+  lands. The API does not change; only the implementation.
+  Documented in `src/ahu/app.kai` header.
+
 - `src/ahu/app.kai` — `run_app(root)` bootstrap helper.
   Subscribes to SIGINT and SIGTERM via the kaikai `Signal`
   effect (closed in `lnds/kaikai#107` / PR #116, kaikai
