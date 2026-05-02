@@ -72,7 +72,7 @@ streaming server and recognise the result as
   - Composition operator: `|>` (kaikai's existing apply-pipe).
   - `Stream.run(pipeline)` materialises a Source-...-Sink pipeline.
 
-- **Layer 2 — Cells** (`src/cell.kai`).
+- **Layer 2 — Cells** (`src/ahu/cell.kai`).
   - Type: `Cell[Msg, e]` (a closure in the recursive function
     shape).
   - `start_cell(body) : Pid[Msg]` constructor.
@@ -80,7 +80,7 @@ streaming server and recognise the result as
   - The `receive { ... }` form desugaring to `Actor.receive()`
     + match.
 
-- **Layer 3 — Restart helpers** (`src/restart.kai`).
+- **Layer 3 — Restart helpers** (`src/ahu/restart.kai`).
   - `RestartPolicy = Permanent | Transient | Temporary`.
   - `RestartLimit = { intensity, period }` with default
     `5 / 60s`.

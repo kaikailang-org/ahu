@@ -16,7 +16,7 @@
 
 import spawn
 import actor
-import cell
+import ahu.cell
 
 type Mode = Active(Int) | Paused(Int)
 
@@ -27,24 +27,24 @@ fn mode_step(m: Mode, msg: ModeMsg)
   : StepResult[Mode] / Console + Actor[ModeMsg]
 = match m {
     Active(v) -> match msg {
-      Tick                  -> keep(Active(v + 1))
-      Pause                 -> keep(Paused(v))
-      Resume                -> keep(m)
+      Tick                  -> cell.keep(Active(v + 1))
+      Pause                 -> cell.keep(Paused(v))
+      Resume                -> cell.keep(m)
       Snapshot(reply)       -> {
         Actor.send(reply, SnapshotReply("Active", v))
-        keep(m)
+        cell.keep(m)
       }
-      SnapshotReply(_, _)   -> keep(m)
+      SnapshotReply(_, _)   -> cell.keep(m)
     }
     Paused(v) -> match msg {
-      Tick                  -> keep(m)
-      Resume                -> keep(Active(v))
-      Pause                 -> keep(m)
+      Tick                  -> cell.keep(m)
+      Resume                -> cell.keep(Active(v))
+      Pause                 -> cell.keep(m)
       Snapshot(reply)       -> {
         Actor.send(reply, SnapshotReply("Paused", v))
-        keep(m)
+        cell.keep(m)
       }
-      SnapshotReply(_, _)   -> keep(m)
+      SnapshotReply(_, _)   -> cell.keep(m)
     }
   }
 
@@ -86,7 +86,7 @@ fn driver(me: Pid[ModeMsg], pid: Pid[ModeMsg])
 
 fn run() : Unit / Spawn + Console + Actor[ModeMsg] = {
   let me = Actor.self()
-  with_cell(Active(0), mode_step, (pid) => driver(me, pid))
+  cell.with_cell(Active(0), mode_step, (pid) => driver(me, pid))
 }
 
 fn main() : Int / Console + Spawn = {

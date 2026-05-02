@@ -22,7 +22,7 @@
 
 import spawn
 import actor
-import cell
+import ahu.cell
 
 type CounterMsg = Increment | GetValue(Pid[CounterMsg]) | ReplyValue(Int) | Stop
 
@@ -35,14 +35,14 @@ fn counter_step(value: Int, msg: CounterMsg)
 = match msg {
     Increment          -> {
       Stdout.print("counter: ++ to " ++ int_to_string(value + 1))
-      keep(value + 1)
+      cell.keep(value + 1)
     }
     GetValue(reply_to) -> {
       Actor.send(reply_to, ReplyValue(value))
-      keep(value)
+      cell.keep(value)
     }
     ReplyValue(_)      -> keep(value)
-    Stop               -> cell_done()
+    Stop               -> cell.cell_done()
     # Note: the cell's Stop branch does not print before exiting
     # because the driver may return from `with_cell` before the
     # scheduler gives the cell another tick. Structured shutdown
@@ -72,7 +72,7 @@ fn driver_body(me: Pid[CounterMsg], counter: Pid[CounterMsg])
 
 fn run() : Unit / Spawn + Console + Actor[CounterMsg] = {
   let me = Actor.self()
-  with_cell(0, counter_step, (counter) => driver_body(me, counter))
+  cell.with_cell(0, counter_step, (counter) => driver_body(me, counter))
 }
 
 fn main() : Int / Console + Spawn = {

@@ -258,7 +258,7 @@ internal mutation); behaviour switches are encoded as a sum
 type for State (Active → Paused → Draining as variants).
 
 ```kai
-# In src/cell.kai:
+# In src/ahu/cell.kai (imported as `import ahu.cell`):
 pub type StepResult[State] = Continue(State) | Done
 
 pub fn keep[State](s: State) : StepResult[State] = Continue(s)
@@ -370,7 +370,7 @@ helpers compose with nurseries — a nursery + N children + N
 restart wrappers **is** your supervision tree.
 
 ```kai
-# In src/restart.kai (Tongariki):
+# In src/ahu/restart.kai (imported as `import ahu.restart`):
 pub type RestartPolicy = Permanent | Transient | Temporary
 pub type RestartLimit  = Limit(Int)               # intensity only in v1
 pub type Outcome       = Completed | Escalated
