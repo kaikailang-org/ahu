@@ -3,16 +3,26 @@
 Living document for the kaikai-native concurrency and fault-tolerance
 framework that runs underneath manutara and friends.
 
-> **Pivoted on 2026-05-02.** This document supersedes the OTP-style
-> draft first written in this same lane. Rationale: Erlang's OTP
-> solutions exist to compensate for things kaikai already has
-> (structured concurrency, typed mailboxes, effects in the row).
-> Cloning OTP would import baggage that kaikai does not need. The
-> three-layer design pinned here — *streams*, *cells*, *restart
-> helpers* — keeps the load-bearing patterns OTP got right while
-> dropping everything that is downstream of Erlang's specific
-> runtime constraints. The OTP draft is preserved in this file's
-> git history; the lane retrospective documents the pivot.
+> **Status (2026-05-02):** Layer 2 (cells) and Layer 3 (restart
+> helpers) have shipped against kaikai 0.34.x — see PRs `#2`
+> and `#3`, retrospective in
+> `docs/lane-experience-ahu-tongariki-cells-restart.md`. Layer
+> 1 (streams) is paused on `lnds/kaikai#106` (missing
+> `core.list.map / filter / foldl` upstream). The full
+> Tongariki MVP — Layer 1 + `run_app` + the TCP echo
+> integration example — closes once that issue lands.
+>
+> **Origin (2026-05-02 earlier):** This document was pivoted
+> from an OTP-style draft to the current three-layer shape.
+> Rationale: Erlang's OTP solutions exist to compensate for
+> things kaikai already has (structured concurrency, typed
+> mailboxes, effects in the row). Cloning OTP would import
+> baggage that kaikai does not need. The three-layer design
+> — *streams*, *cells*, *restart helpers* — keeps the
+> load-bearing patterns OTP got right while dropping
+> everything that is downstream of Erlang's specific
+> runtime constraints. The OTP draft is preserved in this
+> file's git history.
 
 ## Context
 
@@ -658,20 +668,28 @@ ahu/
 
 ## End-to-end MVP verification
 
-A user with `kaikai-Tongariki` installed must be able to:
+The Tongariki MVP target is the TCP echo server: a user with
+kaikai installed clones ahu, builds, tests, and runs the echo
+example end-to-end. Concretely:
 
 ```sh
 git clone github.com/lnds/ahu
 cd ahu
-kai build
-kai test tests/
-kai run examples/echo/main.kai &           # echo server boots
-echo "ping" | nc localhost 8080            # → "ping\n"
-kill -INT $!                               # graceful shutdown
-wait                                       # exit code 0
+KAI_HOME=../kaikai make tier1               # all fixtures green
+kai run examples/echo/main.kai &            # echo server boots
+echo "ping" | nc localhost 8080             # → "ping\n"
+kill -INT $!                                # graceful shutdown
+wait                                        # exit code 0
 ```
 
-If this works, ahu-Tongariki is fulfilled.
+**Current status (2026-05-02):** the `make tier1` step works
+today against the Layer 2 + Layer 3 fixtures (7 fixtures
+pass). The `examples/echo` integration target is gated on
+Layer 1 (streams) shipping — see *External dependencies* below
+for the upstream `lnds/kaikai#106` blocker.
+
+ahu-Tongariki is **fulfilled** when the full sequence above
+runs to completion against an unmodified kaikai checkout.
 
 ## External dependencies on kaikai
 
@@ -702,10 +720,67 @@ Plus one bonus for ahu's reference example:
    (`stdlib/net/tcp.kai`). Layer 1's `Source.from_listener(port)`
    has a real implementation target instead of a mock.
 
-### Open (residual gaps)
+### Open (filed as upstream issues)
 
-Two gaps remain. Neither blocks ahu-Tongariki implementation but
-each shapes the API surface ahu can offer today:
+Four concrete gaps surfaced during the Tongariki
+implementation lanes. Each is filed as a `lnds/kaikai` issue
+with a self-contained reproducer; ahu either ships a
+documented workaround or pauses the affected lane.
+
+1. **`lnds/kaikai#106` — `core.list` missing `map` / `filter`
+   / `foldl` / `foldr` / `length` / `reverse` / `zip` /
+   `unzip`.** `kaikai/docs/stdlib-layout.md` documents these
+   as the `core.list` v1 inventory; `stdlib/core/list.kai`
+   currently ships only `map_indexed` and `flat_map` from the
+   higher-order family. **Blocks Layer 1 entirely.** The
+   ahu-Tongariki streams layer ships once those functions
+   land; rolling them in ahu would create nominal collisions
+   with the eventual upstream surface.
+
+2. **`lnds/kaikai#107` — missing `Signal` effect for graceful
+   shutdown.** Kaikai's runtime installs a `SIGSEGV` handler
+   internally for fiber-stack overflow detection but does
+   not expose user-level signal trapping. **Blocks `run_app`
+   bootstrap.** Without `Signal.on_cancel(SigInt)` or
+   equivalent, `run_app(root)` reduces to a 1-line wrapper
+   around `nursery` and ships no meaningful value beyond
+   what users can write inline. The TCP echo example
+   (Tongariki MVP target) needs Ctrl-C → graceful drain →
+   exit 0; that path requires the upstream effect.
+
+3. **`lnds/kaikai#104` — segfault: nested mailbox + trap-exit
+   + `spawn_actor` inside.** A specific composition (a fiber
+   spawned under `fiber_set_trap_exit(true)`, with a
+   `with_mailbox` of one Msg type and a nested `with_mailbox`
+   of a different Msg type, and `spawn_actor` called inside
+   the nested scope) crashes the runtime. **Blocks
+   `restartable_cell`** — the natural Cell + restart
+   combined helper needs exactly this pattern. ahu-Tongariki
+   ships `with_cell` and `with_restart` as standalone
+   primitives; users who want both compose by spawning
+   across separate fibers manually. `restartable_cell`
+   lands once the upstream gap closes.
+
+4. **`lnds/kaikai#103` — trap-exit bypassed by outer Cancel
+   handler.** When a parent fiber sets `fiber_set_trap_exit(true)`
+   but the call site that invokes the spawn-and-receive cycle
+   is wrapped in `handle { ... } with Cancel { raise(_) -> ...
+   }`, the outer Cancel handler intercepts the child's
+   `Cancel.raise()` directly — before trap-exit can convert
+   it into `"Crashed"`. **Blocks layered supervision via
+   `Cancel.raise()`.** ahu-Tongariki's `with_restart` returns
+   `Outcome.Escalated` instead of raising `Cancel`, sidestepping
+   the interaction. Layered supervision still composes by
+   inspecting the inner outcome and re-raising at a layer
+   without an intermediate Cancel handler. The Cancel-based
+   escalation path may revert to direct propagation once the
+   upstream semantics is tightened.
+
+### Open (watch items, not confirmed gaps)
+
+Two items the implementation passes did NOT exercise but the
+design depends on. Verification arrives during the streams
+implementation lane:
 
 1. **Free `start_cell : ... -> Pid[Msg]` constructor.** Kaikai's
    region-brand walker today consults a hardcoded allow-list
@@ -715,30 +790,23 @@ each shapes the API surface ahu can offer today:
    return `Pid[Msg]` / `Fiber[T]`. User-code helpers — including
    ahu's — are rejected. ahu-Tongariki ships `with_cell(initial,
    step, body)` as the canonical entry point (mirroring
-   `with_mailbox`'s shape), and adds a free `start_cell` once
-   full `TyBranded(Ty, BrandId)` propagation lands upstream
-   (`docs/fibers-honesty-targets.md` §*Residual m8.x items*).
-   Tracked as `kaikai#TBD` once a concrete proposal lands.
-2. **Structured `with_cell` shutdown.** When `body` returns, the
-   cell's fiber is still alive — the kaikai `nursery` helper is
-   currently a typed pass-through (`stdlib/spawn.kai` line 84:
-   *"the nursery body itself does not yet implement the
-   structured cancel-on-fail-and-rethrow semantics"*). ahu's
-   `with_cell` therefore lets the cell outlive the body in v1;
-   any final messages (e.g. a `Stop` sent right before the body
-   returns) may not be processed before `main` exits. Closes
-   when the kaikai nursery wraps `Spawn` and observes child
-   terminations through `Link`. Until then, ahu-Tongariki
-   examples avoid asserting on post-`Stop` cell output.
-
-3. **Effect-row propagation through closure types in record
-   fields.** Streams (`Source[T, e]`, `Flow[A, B, e]`,
-   `Sink[T, R, e]`) need this to typecheck. Kaikai's effects
-   spec implies it works (rows live on the function type
-   inside the record), but ahu's stream layer has not yet
-   exercised it; verification arrives during the streams
-   implementation lane. Tracked as a watch item, not a
-   confirmed gap.
+   `with_mailbox`'s shape); a free `start_cell` form is added
+   once full `TyBranded(Ty, BrandId)` propagation lands
+   upstream (`docs/fibers-honesty-targets.md` §*Residual m8.x
+   items*). Not yet filed as a concrete issue — the right
+   shape needs a concrete proposal.
+2. **Structured `with_cell` shutdown.** When `body` returns,
+   the cell's fiber is still alive — the kaikai `nursery`
+   helper is currently a typed pass-through
+   (`stdlib/spawn.kai`: *"the nursery body itself does not
+   yet implement the structured cancel-on-fail-and-rethrow
+   semantics"*). ahu's `with_cell` therefore lets the cell
+   outlive the body in v1; any final messages (e.g. a `Stop`
+   sent right before the body returns) may not be processed
+   before `main` exits. The `examples/counter/main.out.expected`
+   reflects this honestly. Closes when the kaikai nursery
+   wraps `Spawn` and observes child terminations through
+   `Link`.
 
 The design lane does not patch any of these — gaps are surfaced
 as kaikai issues coordinated separately.
