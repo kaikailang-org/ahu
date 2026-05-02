@@ -8,6 +8,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `docs/lane-experience-ahu-tongariki-mvp-close.md` —
+  consolidated retrospective for the full MVP arc (PRs
+  #5–#10), upstream coordination summary across the six
+  kaikai issues filed (#56, #59, #103, #104, #106, #107),
+  what worked / what did not, and what's next for ahu-Anga
+  Roa.
+- `README.md` rewritten to reflect the **Tongariki shipped**
+  state. Contains a layer-by-layer status block, three
+  short code tastes (cell, pipeline, restartable_cell),
+  pointers to both lane-experience reports.
+
+This version is **ready for the integrator to bump to
+`0.1.0`** per CLAUDE.md §*Integrator workflow B*. The
+shipped Tongariki surface (3 modules, 4 examples, 13 tier1
+fixtures, 6 upstream issues coordinated) matches
+`docs/design.md` §*MVP scope* line by line.
+
+
+
 - `examples/echo/main.kai` — TCP echo server demo combining
   all four ahu layers + kaikai stdlib primitives (NetTcp v1,
   Signal placeholder via run_app). Per-session counter cell
