@@ -1,0 +1,61 @@
+# tests/cross_restartable_cell_restart.kai — restartable_cell
+# under Permanent policy with a driver that always crashes;
+# verifies the supervisor restarts the WHOLE body+cell pair.
+#
+# Coverage: each restart cycle re-spawns a fresh cell — state
+# resets to `initial` (0) each time. The driver counts the
+# cell up by 1, asks for the value, prints it, then crashes.
+# Permanent policy with intensity=2 means: two full cycles,
+# then escalation. The escalation Cancel is caught by an outer
+# handler so the program exits cleanly.
+#
+# Expected trace verifies:
+#   - State really resets between restarts (each driver run
+#     sees the cell value at 1, not at 1+previous-runs).
+#   - Permanent policy's Cancel.raise() escalation composes
+#     through the supervisor.
+
+import actor
+import spawn
+import ahu.cell
+import ahu.restart
+
+type CounterMsg = Increment | GetValue(Pid[CounterMsg]) | ReplyValue(Int)
+
+fn counter_step(value: Int, msg: CounterMsg)
+  : StepResult[Int] / Actor[CounterMsg] + Console + Cancel
+= match msg {
+    Increment          -> cell.keep(value + 1)
+    GetValue(reply_to) -> {
+      Actor.send(reply_to, ReplyValue(value))
+      cell.keep(value)
+    }
+    ReplyValue(_)      -> cell.keep(value)
+  }
+
+fn driver(cell_pid: Pid[CounterMsg])
+  : Unit / Console + Actor[CounterMsg] + Cancel
+= {
+  let me = Actor.self()
+  Actor.send(cell_pid, Increment)
+  Actor.send(cell_pid, GetValue(me))
+  match Actor.receive() {
+    ReplyValue(v) -> Stdout.print("driver: got " ++ int_to_string(v))
+    Increment     -> Stdout.print("driver: unexpected Increment")
+    GetValue(_)   -> Stdout.print("driver: unexpected GetValue")
+  }
+  Cancel.raise()
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Console = {
+  handle {
+    restart.restartable_cell(Permanent, Limit(2), 0, counter_step, driver)
+  } with Cancel {
+    raise(resume) -> Stdout.print("supervisor: escalated")
+  }
+}
+
+fn main() : Int / Console + Spawn + Link = {
+  with_mailbox { run() }
+  0
+}
