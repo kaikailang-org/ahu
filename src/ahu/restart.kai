@@ -2,7 +2,7 @@
 # Imported by user code as `import ahu.restart`; functions are
 # accessed dotted (`restart.with_restart(...)`,
 # `restart.default_limit()`); types stay bare
-# (`RestartPolicy`, `RestartLimit`, `Outcome`).
+# (`RestartPolicy`, `RestartLimit`).
 #
 # `with_restart(policy, limit, body)` spawns `body` in a child
 # fiber and watches its termination via kaikai's trap-exit
@@ -30,24 +30,29 @@
 #     route the body's termination through the supervisor's
 #     mailbox.
 #
-# Escalation as a return value (not Cancel.raise): the v1
-# escalation path returns `Outcome.Escalated` when the
-# intensity limit is exceeded. The original sketch raised
-# Cancel for escalation (so a parent supervisor would observe
-# the failure through its own Link), but kaikai's current
-# semantics prioritise an outer `handle { ... } with Cancel`
-# clause over the trap-exit conversion — meaning a Cancel
-# handler installed by the caller intercepts the child's crash
-# directly, bypassing the supervisor's restart loop. Returning
-# Outcome avoids that interaction entirely. Layered supervision
-# (an outer with_restart watching an inner one) is achievable
-# by checking the inner's Outcome and re-raising as needed.
+# Escalation semantics (BEAM-faithful, post-`lnds/kaikai#103`):
+# when the cumulative restart count reaches `intensity`, the
+# supervisor calls `Cancel.raise()`. The kaikai runtime now
+# converts trap-exit'd child Cancel.raise() to "Crashed"
+# *before* any user-level Cancel handler can intercept (PR
+# #122), so layered supervision composes through the standard
+# Cancel/Link channel: a parent supervisor watching `with_restart`
+# observes escalation as a "Crashed" message in its own
+# mailbox.
+#
+# Callers who want explicit (non-Cancel) observability of
+# escalation wrap with their own Cancel handler:
+#
+#   handle {
+#     restart.with_restart(policy, limit, body)
+#   } with Cancel {
+#     raise(resume) -> Stdout.print("supervisor: escalated")
+#   }
 #
 # v1 simplification: `RestartLimit` carries only `intensity` —
 # the cumulative count of restarts allowed before escalation.
-# The OTP-style sliding-window `period` is a follow-up
-# (`docs/design.md` §*External dependencies on kaikai* tracks
-# the dependency on `Clock` for the timestamp comparison).
+# The OTP-style sliding-window `period` is a follow-up (depends
+# on a `Clock` effect for timestamp comparison).
 
 import actor
 import spawn
@@ -56,21 +61,19 @@ pub type RestartPolicy = Permanent | Transient | Temporary
 
 pub type RestartLimit = Limit(Int)
 
-pub type Outcome = Completed | Escalated
-
 pub fn default_limit() : RestartLimit = Limit(5)
 
-# Run `body` under the policy. Returns `Completed` if the body
-# terminated in a way the policy accepts (Normal exit under
-# Transient/Temporary, or Crashed exit under Temporary), or
-# `Escalated` if the intensity limit was exceeded. The body
-# receives the supervisor's pid so it can `Link.link(parent)`
-# and become observable to the trap-exit channel.
+# Run `body` under the policy. Returns Unit on clean shutdown
+# (Normal exit under Transient/Temporary, or Crashed exit under
+# Temporary), or raises `Cancel` when the intensity limit is
+# exceeded — which lets layered supervision compose through the
+# trap-exit channel of an outer `with_restart` watching this
+# one.
 pub fn with_restart[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
   body:   (Pid[String]) -> Unit / Actor[String] + Link + e
-) : Outcome / Actor[String] + Spawn + Link + Cancel + e = {
+) : Unit / Actor[String] + Spawn + Link + Cancel + e = {
   let _ = fiber_set_trap_exit(true)
   let parent = Actor.self()
   restart_loop(policy, limit, body, parent, 0)
@@ -82,10 +85,10 @@ fn restart_loop[e](
   body:   (Pid[String]) -> Unit / Actor[String] + Link + e,
   parent: Pid[String],
   count:  Int
-) : Outcome / Actor[String] + Spawn + Link + Cancel + e = {
+) : Unit / Actor[String] + Spawn + Link + Cancel + e = {
   let intensity = match limit { Limit(i) -> i }
   if count >= intensity {
-    Escalated
+    Cancel.raise()
   } else {
     let _ = fiber_spawn(() => with_mailbox { body(parent) })
     let reason = Actor.receive()
@@ -93,9 +96,9 @@ fn restart_loop[e](
       Permanent -> restart_loop(policy, limit, body, parent, count + 1)
       Transient -> match reason {
         "Crashed" -> restart_loop(policy, limit, body, parent, count + 1)
-        _         -> Completed
+        _         -> ()
       }
-      Temporary -> Completed
+      Temporary -> ()
     }
   }
 }

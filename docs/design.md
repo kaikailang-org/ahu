@@ -3,17 +3,23 @@
 Living document for the kaikai-native concurrency and fault-tolerance
 framework that runs underneath manutara and friends.
 
-> **Status (2026-05-02):** Layer 2 (cells), Layer 3 (restart
-> helpers), and Layer 1 (streams) have all shipped against
-> kaikai 0.35.x — see PRs `#2`, `#3`, and `#5`. Retrospective
-> for the cells + restart lanes lives in
-> `docs/lane-experience-ahu-tongariki-cells-restart.md`;
-> Layer 1 closed within a single commit because the heavy
-> lifting was done upstream by `lnds/kaikai#106`. The
-> remaining MVP pieces — `run_app` bootstrap and the TCP
-> echo integration example — are gated on `lnds/kaikai#107`
-> (Signal effect for graceful shutdown) and on lazy stream
-> sources for cross-fiber composition.
+> **Status (2026-05-02 evening):** All four kaikai upstream
+> issues filed during the Tongariki implementation lanes have
+> closed in kaikai 0.36.x:
+>
+> - `lnds/kaikai#103` (trap-exit beats outer Cancel handler)
+> - `lnds/kaikai#104` (nested mailbox + trap-exit segfault)
+> - `lnds/kaikai#106` (core.list higher-order helpers)
+> - `lnds/kaikai#107` (Signal effect for graceful shutdown)
+>
+> Layer 2 (cells), Layer 3 (restart helpers), and Layer 1
+> (streams) have shipped — PRs `#2`, `#3`, `#5`. The current
+> lane (`ahu-tongariki-restart-v2`) reverts `with_restart`
+> from the `Outcome` workaround to BEAM-faithful
+> `Cancel.raise()` for escalation now that #103 is fixed. The
+> remaining ahu work — `restartable_cell`, `run_app`, and the
+> TCP echo integration example — is now upstream-unblocked
+> and queues as future lanes.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -373,13 +379,12 @@ restart wrappers **is** your supervision tree.
 # In src/ahu/restart.kai (imported as `import ahu.restart`):
 pub type RestartPolicy = Permanent | Transient | Temporary
 pub type RestartLimit  = Limit(Int)               # intensity only in v1
-pub type Outcome       = Completed | Escalated
 
 pub fn with_restart[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
   body:   (Pid[String]) -> Unit / Actor[String] + Link + e
-) : Outcome / Actor[String] + Spawn + Link + Cancel + e
+) : Unit / Actor[String] + Spawn + Link + Cancel + e
 ```
 
 The implementation uses kaikai's trap-exit mechanism
@@ -393,31 +398,34 @@ to spawn the body again or return.
 On termination the supervisor consults the policy:
 
 - `Permanent`: restart the body unconditionally.
-- `Transient`: restart only on `"Crashed"`; on `"Normal"`, return
-  `Completed`.
-- `Temporary`: never restart; return `Completed`.
+- `Transient`: restart only on `"Crashed"`; on `"Normal"`,
+  return Unit cleanly.
+- `Temporary`: never restart; return Unit cleanly.
 
 When the cumulative restart count reaches `intensity`, the
-supervisor returns `Escalated` instead of looping again. A
-parent that wants to react to escalation (e.g. another
-`with_restart` watching the wrapper) inspects the returned
-`Outcome` and re-raises as needed.
+supervisor calls `Cancel.raise()`. The kaikai runtime
+(post-`lnds/kaikai#103` / PR #122) converts trap-exit'd child
+`Cancel.raise()` to `"Crashed"` *before* any user-level Cancel
+handler can intercept, so layered supervision composes
+through the standard Cancel/Link channel: a parent supervisor
+watching `with_restart` observes escalation as a `"Crashed"`
+message in its own mailbox, exactly like any other child
+crash.
 
-**Why escalation returns `Outcome.Escalated` instead of raising
-`Cancel`:** the original sketch used `Cancel.raise()` so a
-parent supervisor would observe escalation through its own
-Link / trap-exit channel. In current kaikai, an outer
-`handle { ... } with Cancel { raise(_) -> ... }` clause at the
-caller site intercepts the *child*'s `Cancel.raise()` directly
-(before trap-exit converts it), so the supervisor's restart
-loop never gets to run. Returning `Outcome` avoids that
-interaction entirely. Layered supervision still composes:
-the outer `with_restart`'s body inspects the inner outcome
-and re-raises by raising itself (e.g. via `Cancel.raise()` —
-guarded by trap-exit at the *outer* layer, where there is no
-intermediate Cancel handler). When kaikai's effect-handler
-ordering vs trap-exit semantics is tightened upstream, this
-escalation path may revert to direct propagation.
+Callers who want explicit (non-Cancel) observability of
+escalation wrap the call in their own Cancel handler:
+
+```kai
+handle {
+  restart.with_restart(Permanent, restart.default_limit(), body)
+} with Cancel {
+  raise(resume) -> Stdout.print("supervisor: escalated")
+}
+```
+
+That handler only catches the supervisor's own `Cancel.raise()`
+at the escalation site — never the child's, which trap-exit
+converts at the runtime boundary.
 
 **`RestartLimit` v1 simplification.** Carries only `intensity`.
 The OTP-style sliding-window `period` requires a `Clock` effect
@@ -705,9 +713,9 @@ runs to completion against an unmodified kaikai checkout.
 
 ## External dependencies on kaikai
 
-### Closed (as of kaikai 0.35.x)
+### Closed (as of kaikai 0.36.x)
 
-Five blockers from the original design have closed upstream:
+All blockers from the original design have closed upstream:
 
 1. **Blocking `Actor.receive()` on an empty mailbox.** Closed
    by kaikai m8.x runtime (landed v0.4.0; documentation
@@ -734,52 +742,32 @@ Five blockers from the original design have closed upstream:
    (`stdlib/net/tcp.kai`). Once lazy stream sources land
    post-Tongariki, `Source.from_listener(port)` will wrap the
    `NetTcp` ops directly.
+6. **trap-exit beats outer Cancel handler.** Closed by kaikai
+   PR #122 / `lnds/kaikai#103` in 0.36.0 — the runtime now
+   converts a trap-exit'd child's `Cancel.raise()` to
+   `"Crashed"` *before* any user-level Cancel handler can
+   intercept. ahu's `with_restart` reverted from the
+   `Outcome` workaround to BEAM-faithful `Cancel.raise()`
+   for escalation; layered supervision composes through the
+   standard Link/trap-exit channel.
+7. **Nested mailbox + trap-exit + `spawn_actor` segfault.**
+   Closed by `lnds/kaikai#104`. The runtime bookkeeping for
+   `mailbox_assign_owner` under nested `with_mailbox` scopes
+   while a fiber is trap-exit'd no longer crashes. Unblocks
+   `restartable_cell` (combined Layer 2 + Layer 3 helper —
+   future ahu lane).
+8. **`Signal` effect for graceful shutdown.** Closed by
+   `lnds/kaikai#107` / PR #116 in 0.36.x — `Signal.on(sig)`
+   subscribes to `SigInt` / `SigTerm` / etc., `Signal.await()`
+   parks until any subscribed signal fires. Unblocks
+   `run_app` bootstrap (future ahu lane).
 
-### Open (filed as upstream issues)
+### Open
 
-Three concrete gaps remain open. Each is filed as a
-`lnds/kaikai` issue with a self-contained reproducer; ahu
-either ships a documented workaround or pauses the affected
-lane.
-
-1. **`lnds/kaikai#107` — missing `Signal` effect for graceful
-   shutdown.** Kaikai's runtime installs a `SIGSEGV` handler
-   internally for fiber-stack overflow detection but does
-   not expose user-level signal trapping. **Blocks `run_app`
-   bootstrap.** Without `Signal.on_cancel(SigInt)` or
-   equivalent, `run_app(root)` reduces to a 1-line wrapper
-   around `nursery` and ships no meaningful value beyond
-   what users can write inline. The TCP echo example
-   (Tongariki MVP target) needs Ctrl-C → graceful drain →
-   exit 0; that path requires the upstream effect.
-
-3. **`lnds/kaikai#104` — segfault: nested mailbox + trap-exit
-   + `spawn_actor` inside.** A specific composition (a fiber
-   spawned under `fiber_set_trap_exit(true)`, with a
-   `with_mailbox` of one Msg type and a nested `with_mailbox`
-   of a different Msg type, and `spawn_actor` called inside
-   the nested scope) crashes the runtime. **Blocks
-   `restartable_cell`** — the natural Cell + restart
-   combined helper needs exactly this pattern. ahu-Tongariki
-   ships `with_cell` and `with_restart` as standalone
-   primitives; users who want both compose by spawning
-   across separate fibers manually. `restartable_cell`
-   lands once the upstream gap closes.
-
-4. **`lnds/kaikai#103` — trap-exit bypassed by outer Cancel
-   handler.** When a parent fiber sets `fiber_set_trap_exit(true)`
-   but the call site that invokes the spawn-and-receive cycle
-   is wrapped in `handle { ... } with Cancel { raise(_) -> ...
-   }`, the outer Cancel handler intercepts the child's
-   `Cancel.raise()` directly — before trap-exit can convert
-   it into `"Crashed"`. **Blocks layered supervision via
-   `Cancel.raise()`.** ahu-Tongariki's `with_restart` returns
-   `Outcome.Escalated` instead of raising `Cancel`, sidestepping
-   the interaction. Layered supervision still composes by
-   inspecting the inner outcome and re-raising at a layer
-   without an intermediate Cancel handler. The Cancel-based
-   escalation path may revert to direct propagation once the
-   upstream semantics is tightened.
+All four upstream issues filed during ahu-Tongariki
+implementation lanes (`#103`, `#104`, `#106`, `#107`) have
+**closed** in kaikai 0.35.x / 0.36.x. The followup ahu work
+that each unlocks is tracked in §*What's next* below.
 
 ### Open (watch items, not confirmed gaps)
 
