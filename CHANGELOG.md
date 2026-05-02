@@ -8,6 +8,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- `src/ahu/app.kai` — `run_app(root)` bootstrap helper.
+  Subscribes to SIGINT and SIGTERM via the kaikai `Signal`
+  effect (closed in `lnds/kaikai#107` / PR #116, kaikai
+  0.36.x), spawns `root` as a child fiber, parks on
+  `Signal.await()` until either signal fires, then cancels
+  the root fiber cleanly. Imported as `import ahu.app`;
+  called as `app.run_app(root)`.
+- Makefile `AHU_SRC` extended to glob `src/ahu/*.kai` so the
+  pattern rule's dependency tracking picks up `app.kai` along
+  with `cell.kai` and `restart.kai`.
+
+(Tier 1 fixture coverage for `run_app` deferred to the TCP
+echo lane — sending SIGINT to a running tier1 binary requires
+an external harness out of scope for the diff-style fixture
+loop. The function's signature is verified by standalone
+compilation.)
+
+
+
 - `restartable_cell(policy, limit, initial, step, driver)` in
   `src/ahu/restart.kai` — combined Layer 2 + Layer 3 helper.
   Boots a cell under restart supervision and runs a user's

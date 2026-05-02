@@ -95,7 +95,7 @@ tier1-fixtures: $(ALL_BINS)
 	done
 
 # Pattern rule for tests/ fixtures.
-AHU_SRC = $(wildcard src/*.kai)
+AHU_SRC = $(wildcard src/*.kai) $(wildcard src/ahu/*.kai)
 
 $(BUILD)/%: tests/%.kai $(AHU_SRC) | $(BUILD)
 	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
