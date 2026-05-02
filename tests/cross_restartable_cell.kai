@@ -1,0 +1,61 @@
+# tests/cross_restartable_cell.kai — Cell + restart combined helper.
+#
+# Coverage: `restartable_cell` boots a cell under restart
+# supervision and runs a driver against it. The driver sends
+# Increment + GetValue, observes the reply, then sends Stop.
+# Body returns cleanly → trap-exit "Normal" → Transient policy
+# returns Unit.
+#
+# Verifies the post-`lnds/kaikai#104` composition: a fiber
+# trap-exit'd by its parent can hold a nested mailbox of a
+# different Msg type and call `spawn_actor` inside without
+# crashing the runtime. This pattern was the load-bearing
+# blocker for `restartable_cell` in earlier ahu lanes.
+
+import actor
+import spawn
+import ahu.cell
+import ahu.restart
+
+type CounterMsg = Increment | GetValue(Pid[CounterMsg]) | ReplyValue(Int) | Stop
+
+fn counter_step(value: Int, msg: CounterMsg)
+  : StepResult[Int] / Console + Actor[CounterMsg]
+= match msg {
+    Increment          -> {
+      Stdout.print("cell: ++ to " ++ int_to_string(value + 1))
+      cell.keep(value + 1)
+    }
+    GetValue(reply_to) -> {
+      Actor.send(reply_to, ReplyValue(value))
+      cell.keep(value)
+    }
+    ReplyValue(_)      -> cell.keep(value)
+    Stop               -> cell.cell_done()
+  }
+
+fn driver(cell_pid: Pid[CounterMsg])
+  : Unit / Console + Actor[CounterMsg]
+= {
+  let me = Actor.self()
+  Actor.send(cell_pid, Increment)
+  Actor.send(cell_pid, Increment)
+  Actor.send(cell_pid, GetValue(me))
+  match Actor.receive() {
+    ReplyValue(v) -> Stdout.print("driver: got " ++ int_to_string(v))
+    Increment     -> Stdout.print("driver: unexpected Increment")
+    GetValue(_)   -> Stdout.print("driver: unexpected GetValue")
+    Stop          -> Stdout.print("driver: unexpected Stop")
+  }
+  Actor.send(cell_pid, Stop)
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
+  restart.restartable_cell(Transient, restart.default_limit(), 0, counter_step, driver)
+  Stdout.print("supervisor: returned")
+}
+
+fn main() : Int / Console + Spawn + Link + Cancel = {
+  with_mailbox { run() }
+  0
+}

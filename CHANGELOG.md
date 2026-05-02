@@ -6,6 +6,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- `restartable_cell(policy, limit, initial, step, driver)` in
+  `src/ahu/restart.kai` — combined Layer 2 + Layer 3 helper.
+  Boots a cell under restart supervision and runs a user's
+  driver against it. Each restart re-spawns BOTH the
+  supervised body AND a fresh cell with state reset to
+  `initial`. Was deferred while `lnds/kaikai#104` was open
+  (the nested-mailbox + trap-exit + spawn_actor segfault);
+  unblocked when that issue closed in 0.36.x.
+- `tests/cross_restartable_cell.kai` — Transient + body that
+  uses cell + exits Normal → supervisor returns. Verifies the
+  basic compose-the-two-layers shape works end-to-end.
+- `tests/cross_restartable_cell_restart.kai` — Permanent + body
+  that always crashes + intensity=2 → 2 full cycles each with
+  fresh cell state, then escalation. The expected output
+  (`got 1` repeated twice, not `got 1` then `got 2`) verifies
+  state-reset-on-restart semantics.
+
 ### Changed
 
 - **`with_restart` escalation semantics revert to BEAM-faithful
