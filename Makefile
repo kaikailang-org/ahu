@@ -10,12 +10,34 @@ KAIC2     = $(KAI_HOME)/stage2/kaic2
 STAGE0    = $(KAI_HOME)/stage0
 STDLIB    = $(KAI_HOME)/stdlib
 
-# Auto-loaded preludes mirror what `bin/kai` selects in kaikai.
+# Mirror bin/kai's full prelude chain so ahu fixtures see the
+# same canonical surface as upstream demos. When kaikai adds a
+# new top-level stdlib module, both bin/kai and this list need
+# the entry. The kaikai Makefile keeps an EXTRA_PRELUDE_FLAGS
+# block in stage2/Makefile for the same reason — there is no
+# way to ship "all preludes" without enumerating them today.
 PRELUDES  = $(addprefix --prelude ,$(wildcard $(STDLIB)/core/*.kai)) \
             --prelude $(STDLIB)/protocols.kai \
             --prelude $(STDLIB)/effects.kai \
-            --prelude $(STDLIB)/random.kai
+            --prelude $(STDLIB)/random.kai \
+            --prelude $(STDLIB)/encoding/base64.kai \
+            --prelude $(STDLIB)/encoding/hex.kai \
+            --prelude $(STDLIB)/encoding/json.kai \
+            --prelude $(STDLIB)/collections/map.kai \
+            --prelude $(STDLIB)/collections/set.kai \
+            --prelude $(STDLIB)/collections/queue.kai \
+            --prelude $(STDLIB)/collections/stack.kai \
+            --prelude $(STDLIB)/math/numeric.kai \
+            --prelude $(STDLIB)/math/int.kai \
+            --prelude $(STDLIB)/math/real.kai \
+            --prelude $(STDLIB)/decimal.kai \
+            --prelude $(STDLIB)/money.kai \
+            --prelude $(STDLIB)/uuid.kai \
+            --prelude $(STDLIB)/regexp.kai \
+            --prelude $(STDLIB)/path.kai
 
+# `--path` resolves dotted module imports. stdlib for `list.X`,
+# `string.X`, etc.; src/ for ahu's own modules.
 PATH_FLAGS = --path $(STDLIB) --path src
 
 CC       ?= cc
