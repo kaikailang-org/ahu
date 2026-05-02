@@ -8,8 +8,11 @@ Rapa Nui convention shared across the lnds ecosystem
 
 This document is the milestone series for ahu specifically. The
 ecosystem-wide meta-roadmap (where ahu sits relative to kaikai,
-ahu-db, ahu-ddd, manutara) lives upstream in
-`kaikai/docs/roadmap.md`.
+kohau, henua, manutara) lives upstream in
+`kaikai/docs/roadmap.md`. (As of 2026-05-02, the upstream
+roadmap still references the placeholder names `ahu-db` and
+`ahu-ddd`; those are scheduled to be renamed to `kohau` and
+`henua` in a coordinated kaikai PR.)
 
 > **Pivot note (2026-05-02).** This roadmap was rewritten when
 > the design pivoted from OTP-style to streams + cells +
@@ -144,7 +147,7 @@ streaming server and recognise the result as
   scheduler (blocking `receive`, `BlockSender` delivery).
 - **Recommended start gate**: `kaikai-Tongariki` shipped
   (gives `kai test`, `kai check`, `kai bench`, `kai fmt`).
-- **Unlocks downstream**: `ahu-db-Tongariki` can start.
+- **Unlocks downstream**: `kohau-Tongariki` can start.
 
 **Estimated cost**: ~4–6 weeks across ~3 lanes (streams +
 tests, cells + restart + tests, app + echo + CI).
@@ -201,7 +204,7 @@ framework to where teams build production systems with it.
 **Sequencing**:
 
 - **Cannot start until**: `ahu-Tongariki` shipped and at
-  least one downstream user (likely `ahu-db-Tongariki`) has
+  least one downstream user (likely `kohau-Tongariki`) has
   reported back from real use.
 - **Recommended start gate**: `kaikai-Anga Roa` shipped
   (provides `kai lsp` for the diagnostic deliverable).
@@ -305,8 +308,8 @@ platforms.
 
 | Milestone | Can start when | Unlocks |
 |---|---|---|
-| `ahu-Tongariki` | `kaikai-Tongariki` shipped + kaikai m8.x cooperative scheduler in main | `ahu-db-Tongariki` |
-| `ahu-Anga Roa` | `ahu-Tongariki` shipped + 1+ downstream user feedback + `kaikai-Anga Roa` shipped (for `kai lsp`) | `ahu-db-Anga Roa`; manutara can run against either ahu milestone |
+| `ahu-Tongariki` | `kaikai-Tongariki` shipped + kaikai m8.x cooperative scheduler in main | `kohau-Tongariki` |
+| `ahu-Anga Roa` | `ahu-Tongariki` shipped + 1+ downstream user feedback + `kaikai-Anga Roa` shipped (for `kai lsp`) | `kohau-Anga Roa`; manutara can run against either ahu milestone |
 | `ahu-Orongo` | `kaikai-Orongo` in flight (Serialize for records, multi-thread scheduler, cross-fiber unboxing) | `manutara-Orongo` |
 | `ahu-Anakena` | `kaikai-Anakena` in flight (cross-platform matrix) | downstream Anakena milestones |
 
@@ -316,7 +319,7 @@ roadmap pins for the meta-stack).
 
 ## What this doc is NOT
 
-- Not the roadmap for ahu-db, ahu-ddd, or manutara.
+- Not the roadmap for kohau, henua, or manutara.
 - Not a calendar.
 - Not a contract.
 - Not exhaustive — items not listed get their own design doc

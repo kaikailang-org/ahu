@@ -23,12 +23,18 @@ kaikai      (the language)
    ↓
 ahu         (this project — concurrency and fault-tolerance layer)
    ↓
-ahu-db      (database / persistence)
+kohau       (database / persistence)
    ↓
-ahu-ddd     (DDD building blocks)
+henua       (DDD building blocks)
    ↓
 manutara    (web framework, LiveView-shaped)
 ```
+
+Names follow the Rapa Nui vocabulary established by `kaikai` and
+`ahu`. `kohau` is the inscribed wooden tablet that carried the
+rongorongo script — the substrate metaphor maps cleanly to a
+persistence layer. `henua` means *land / territory / domain* — the
+DDD-vocabulary mapping is direct.
 
 ahu's job, in one sentence: **package kaikai's effect, fiber, and
 mailbox primitives into three composable layers — streams, cells,
