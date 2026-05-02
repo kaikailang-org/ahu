@@ -1,14 +1,22 @@
-# tests/restart_intensity_escalate.kai — intensity exceeded → Escalated outcome.
+# tests/restart_intensity_escalate.kai — intensity exceeded → Cancel.raise().
 #
-# Coverage: the intensity-exceeded path of with_restart.
-# Permanent policy + body that always crashes + intensity=2
-# means: body runs twice (count 0 and 1), the third would
-# exceed intensity, so with_restart returns Outcome.Escalated.
-# The caller observes the outcome and prints it.
+# Coverage: the intensity-exceeded escalation path of
+# with_restart. Permanent policy + body that always crashes +
+# intensity=2 means: body runs twice (count 0 and 1), the
+# third would exceed intensity, so with_restart calls
+# Cancel.raise(). The caller wraps with a Cancel handler so
+# the program observes the escalation as a raised effect —
+# the BEAM-faithful semantics now that `lnds/kaikai#103`
+# closed in PR #122 (the kaikai runtime converts trap-exit'd
+# child Cancel.raise() to "Crashed" *before* any user-level
+# Cancel handler can intercept, so the outer Cancel handler
+# only catches the supervisor's own Cancel.raise() at the
+# escalation site — never the child's).
 #
-# Verifies that escalation is observable as a clean return
-# value (not via Cancel propagation that would intercept the
-# child's Cancel.raise() at the wrong handler).
+# Verifies that escalation composes through Cancel: a layered
+# parent (an outer `with_restart` watching this one) would
+# observe escalation through the standard Link/trap-exit
+# channel as a "Crashed" message in its own mailbox.
 
 import actor
 import spawn
@@ -20,16 +28,15 @@ fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = 
   Cancel.raise()
 }
 
-fn print_outcome(o: Outcome) : Unit / Console = match o {
-  Completed -> Stdout.print("supervisor: Completed")
-  Escalated -> Stdout.print("supervisor: Escalated")
+fn run() : Unit / Actor[String] + Spawn + Link + Console = {
+  handle {
+    restart.with_restart(Permanent, Limit(2), body)
+  } with Cancel {
+    raise(resume) -> Stdout.print("supervisor: escalated")
+  }
 }
 
-fn run() : Unit / Actor[String] + Spawn + Link + Cancel + Console = {
-  print_outcome(restart.with_restart(Permanent, Limit(2), body))
-}
-
-fn main() : Int / Console + Spawn + Link + Cancel = {
+fn main() : Int / Console + Spawn + Link = {
   with_mailbox { run() }
   0
 }

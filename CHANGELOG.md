@@ -8,6 +8,22 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **`with_restart` escalation semantics revert to BEAM-faithful
+  `Cancel.raise()`.** When `lnds/kaikai#103` was open, ahu's
+  `with_restart` returned an `Outcome = Completed | Escalated`
+  enum to sidestep the bug where an outer Cancel handler
+  intercepted the child's `Cancel.raise()` before trap-exit
+  could convert it. With #103 closed in kaikai 0.36.0 (PR
+  #122 — *"runtime: bypass user Cancel handlers under
+  trap-exit'd link"*), the workaround is no longer needed.
+  `with_restart` now returns `Unit` and calls `Cancel.raise()`
+  when the intensity limit is exceeded. Layered supervision
+  composes through the standard Link/trap-exit channel: a
+  parent `with_restart` watching this one observes
+  escalation as a `"Crashed"` message in its own mailbox,
+  exactly like any other child crash. `Outcome` type
+  retired. Three restart fixtures updated; tier1 still
+  green at 8 fixtures.
 - **ahu module namespacing.** `src/cell.kai` and
   `src/restart.kai` moved to `src/ahu/cell.kai` and
   `src/ahu/restart.kai`. User code now imports them as
