@@ -8,18 +8,31 @@ meta-files (`CLAUDE.md`, `README.md`, `VERSION`, `CHANGELOG.md`).
 
 ## Result, up front
 
-**All five milestones (M1–M5) closed in a single agent session.**
+**All five milestones (M1–M5) closed in a single agent session,
+followed by an in-PR design pivot prompted by the integrator after
+the initial PR was opened.**
 
-The branch `ahu-design-v1` carries five commits — M1 (scaffolding),
-M3 (design.md), M4 (roadmap.md), and this M5 retrospective. M2
-(reference reading) had no separate commit because it was pure
-input. The PR is opened against `main` of `lnds/ahu` for the
-integrator to review.
+The branch `ahu-design-v1` carries six commits:
+
+1. M1 (scaffolding) — initial repository structure.
+2. M3 (design v1) — OTP-style framework draft pinning behaviors,
+   supervisors, applications.
+3. M4 (roadmap v1) — Tongariki/Anga Roa/Orongo/Anakena series
+   matching the OTP-style scope.
+4. M5 (lane retrospective v1) — initial retrospective, pre-pivot.
+5. **Design v2 pivot** — OTP-style draft replaced by a three-layer
+   kaikai-native design: streams + cells + restart helpers.
+6. **Lane retrospective addendum** (this file's pivot section) —
+   the reasoning that motivated the pivot and what changed.
+
+The PR (`#1` against `main` of `lnds/ahu`) stays open across the
+pivot; the integrator-as-reviewer sees the full design evolution
+in the PR's commit history rather than two separate PRs. M2
+(reference reading) has no commit of its own — it was input both
+before the v1 draft and during the v2 rewrite.
 
 The branch is left clean and ready for review; no implementation
-code exists in `src/`, `tests/`, or `examples/`, matching the
-brief's constraint that this lane ships design and scaffolding
-only.
+code exists in `src/`, `tests/`, or `examples/`.
 
 ## Objective metrics
 
@@ -46,8 +59,9 @@ only.
   - `docs/design.md` (603 lines)
   - `docs/roadmap.md` (315 lines)
   - `docs/lane-experience-ahu-design.md` (this file)
-- Commits on `ahu-design-v1`: 4 (M1 scaffolding, M3 design doc, M4
-  roadmap, M5 lane experience).
+- Commits on `ahu-design-v1`: 6 (M1 scaffolding, M3 design v1, M4
+  roadmap v1, M5 lane experience v1, design v2 pivot, lane
+  experience addendum).
 - No build/test invocations — the repository has no `src/` content
   and the brief explicitly forbids implementation in this lane.
 
@@ -58,6 +72,9 @@ timestamp	cmd	outcome	elapsed_s
 2026-05-02T01:31:54+00:00	read-design+actors+sc+effects	OK	-
 2026-05-02T01:33:19+00:00	read-effects-stdlib+protocols+roadmap+actor.kai+spawn.kai+CLAUDE.md	OK	-
 2026-05-02T01:35:12+00:00	M1-scaffolding-commit	OK	-
+2026-05-02T01:38:25+00:00	M3-design-doc-draft	OK	-
+2026-05-02T01:40:57+00:00	M4-roadmap-draft	OK	-
+2026-05-02T<later>+00:00	design-pivot-start	OK	-
 2026-05-02T01:38:25+00:00	M3-design-doc-draft	OK	-
 2026-05-02T01:40:57+00:00	M4-roadmap-draft	OK	-
 ```
@@ -216,6 +233,160 @@ checks would have been more *mechanical* with structured tooling
 in place. As more ahu lanes open against an actual src/ tree, the
 JSON surface will become more load-bearing — at which point the
 data point becomes worth re-collecting.
+
+## The pivot — design v1 → design v2
+
+After the v1 PR was opened, the integrator pushed back on the OTP-
+style framing. The discussion that closed the pivot (paraphrased):
+
+> ¿Vale la pena duplicar OTP, o hay otros caminos? Los actores
+> son útiles pero ¿qué alternativas tenemos? ¿Cómo lo hace Scala
+> con Akka? La idea es un framework web elegante, no una copia
+> de Phoenix o de OTP. Esto no es Elixir; kaikai debe ser
+> innovador y original.
+
+That reframed the design surface around a different question: not
+*"what is the kaikai port of OTP?"* but *"what concurrency and
+fault-tolerance shapes does a kaikai-native framework actually
+need?"* The answer that emerged from re-examining kaikai's
+primitives:
+
+### What OTP solves that kaikai already provides
+
+| OTP solves | Because Erlang has | kaikai already has |
+|---|---|---|
+| Supervision trees | No structured concurrency | **Nurseries** with regional brand on `Pid[Msg]` |
+| Behavior callbacks (`gen_server`) | Untyped messages — needed callbacks for structure | **Typed mailboxes** by construction |
+| `code_change/3` | Hot reload swapping versions in-place | **No hot reload** (native binaries via LLVM) |
+| `Strategy` enum | No lexical scope for processes | **Lexical nursery placement** encodes every strategy |
+
+When you list it like that, OTP's shape is mostly a residue of
+Erlang's runtime constraints. Cloning OTP into kaikai would import
+the residue without the constraints.
+
+### What ahu actually needs to provide
+
+The patterns OTP got right that survive the constraint shift:
+
+- **Restart policies** as a first-class shape (Permanent /
+  Transient / Temporary, intensity-over-period escalation).
+- **The stateful long-running entity** with a typed message loop
+  (long-lived sessions, websockets, queue workers).
+- **Composable failure containment** that does not require every
+  user to rewrite the failure pattern.
+
+The patterns the kaikai substrate makes obviously necessary:
+
+- **Reactive streams** for the bulk of data flow (request /
+  response, ETL, event broadcasting). Phoenix bolted these on
+  late via `GenStage`; ahu has them upfront.
+- **Effect rows in every signature**, including stream
+  combinators and cell handlers — kaikai's load-bearing
+  novelty, untouched by OTP-style framings.
+
+### The three-layer answer
+
+Streams + Cells + Restart helpers, in that order of layer depth:
+
+- Streams (Layer 1) is the primary paradigm for data flow.
+- Cells (Layer 2) is the addressable, stateful complement —
+  borrowed in shape from Akka Typed (recursive function
+  `Msg → Cell[Msg] / e`), renamed to avoid OTP coding.
+- Restart (Layer 3) is two helpers (`with_restart`,
+  `restartable_cell`) wrapping a body. **No `Supervisor` type.**
+  Supervision strategies fall out of nursery placement.
+
+A program that needs only streams pays for nothing else.
+A program with one cell and no crashes pays for nothing in
+restart. ahu is opinionated infrastructure where patterns
+recur, not a mandatory shell around every concurrent program.
+
+### What changed concretely
+
+- `docs/design.md`: replaced the OTP-style draft (Behavior +
+  Supervisor + Application) with the three-layer design.
+  Decisions renumbered (D1 cells / D2 streams / D3 restart-as-
+  helpers replaced D1 records-of-callbacks / D2 only-one_for_one /
+  D3 process registry — registry deferred decision shifts to D4).
+  Added "Why ahu is not OTP" rationale section. Updated
+  references list to credit Akka Typed (the recursive-function
+  `Behavior[T]` lineage) and Reactive Streams (the
+  demand-based-backpressure spec).
+- `docs/roadmap.md`: per-milestone scope rewritten to match.
+  Tongariki ships the three layers + a TCP echo server example
+  instead of the previous counter + supervisor example. Anga
+  Roa scope keeps registry but adds stream extensions
+  (windowing, broadcast, recovery combinators) and cell helpers
+  (`Cell.ask`, `pool`) gated on Tongariki usage data.
+- `README.md`: rewrote the framing entirely. Removed the
+  "OTP-style framework" line; replaced with a three-layer
+  description and a code taste showing a counter cell plus a
+  TCP echo server.
+- `CLAUDE.md`: tier-2 #4 / #5 rewritten to reflect the new
+  shape names. Things-to-avoid: replaced *"do not introduce
+  alternate process abstractions"* with *"do not clone OTP"*
+  (the actual rule) plus *"do not introduce a Supervisor type"*
+  (Decision 3 operationalised as guidance for future
+  agents).
+
+### Why the pivot was the right call
+
+Three signals that converged:
+
+1. **The "no OTP duplicate" instinct is correct for kaikai's
+   audience.** Anyone reaching for kaikai is already opting out
+   of mainstream tooling — they will not be served by a
+   transliterated Erlang framework. They want kaikai to *exploit
+   what kaikai uniquely has* (effects, structured concurrency,
+   typed mailboxes), not paper over those advantages with an
+   OTP-shaped facade.
+2. **Akka Typed is the working precedent.** Akka spent years on
+   the imperative `class Counter extends Actor` shape, then
+   moved to recursive `Behavior[T]` because it composed better,
+   was more functional, and fit Scala's type system. The same
+   reasoning applies to kaikai. Inheriting that lesson directly,
+   instead of replaying the imperative phase first, saves a
+   stage of rework.
+3. **Manutara (the eventual web framework) needs streams as
+   foundation, not as appendix.** Phoenix's evolution had
+   streams (`GenStage`) added late; the design cost of
+   retrofitting them was real. Putting streams in Layer 1 of
+   ahu pays the cost upfront once, instead of over and over
+   downstream.
+
+### What I would have done differently
+
+The v1 OTP-style draft was not wrong given the original brief
+(*"diseñar ahu, el OTP-analog que vive sobre las primitivas
+actor de kaikai"*). The brief itself loaded the conclusion. **An
+agent asked to design "the OTP-analog" produces an OTP-analog;
+an agent asked to design "the concurrency and fault-tolerance
+substrate that kaikai actually needs" produces something
+different.** For future ahu lanes — and for design lanes
+generally — when the brief contains a directional verb ("the X
+analog", "the Y port"), it is worth one round of explicit
+challenge: *is the analogy load-bearing for the answer, or just
+the framing?*
+
+In retrospect I should have noted this tension during M2
+(reference reading) and surfaced it before drafting M3. The
+signs were there: kaikai/docs/structured-concurrency.md
+explicitly lists *"every fiber lives inside a lexical scope
+(`nursery`) that waits for its children and propagates
+cancellation"*, which is half of what OTP supervision exists for.
+That was visible at M2 and it should have triggered the
+question *"do we even need a supervisor abstraction?"* — but
+the OTP framing in the brief carried the design forward without
+the challenge being raised.
+
+The integrator caught this in PR review. Faster-loop integrator
+review (an open PR with the v1 draft, before the lane closes)
+is therefore strictly better than the previous instinct of
+closing the lane fully before showing the integrator
+anything. Future ahu design lanes should consider opening the
+PR earlier (perhaps at M3 instead of M5) so re-frames like
+this one happen before the lane is fully written and need
+re-doing.
 
 ## What to do differently next time
 
