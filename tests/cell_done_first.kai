@@ -1,0 +1,48 @@
+# tests/cell_done_first.kai — Cell exits on the first message.
+#
+# Coverage: the Done path of cell_loop's match. The cell receives
+# exactly one message, the step function returns cell_done(), the
+# dispatcher exits, and the fiber returns Unit. No Continue
+# iterations.
+#
+# Determinism: the driver sends Tick(me) and parks on receive
+# until the cell sends Ack. That yield gives the cooperative
+# scheduler a window to run the cell's step before the driver
+# (and main) exit, so the cell's print line is observable.
+
+import spawn
+import actor
+import cell
+
+type SimpleMsg = Tick(Pid[SimpleMsg]) | Ack
+
+fn step_done_first(state: Int, msg: SimpleMsg)
+  : StepResult[Int] / Console + Actor[SimpleMsg]
+= match msg {
+    Tick(reply_to) -> {
+      Stdout.print("cell: tick received")
+      Actor.send(reply_to, Ack)
+      cell_done()
+    }
+    Ack -> keep(state)
+  }
+
+fn driver(me: Pid[SimpleMsg], cell_pid: Pid[SimpleMsg])
+  : Unit / Console + Actor[SimpleMsg]
+= {
+  Actor.send(cell_pid, Tick(me))
+  match Actor.receive() {
+    Ack       -> Stdout.print("driver: got ack")
+    Tick(_)   -> Stdout.print("driver: unexpected Tick")
+  }
+}
+
+fn run() : Unit / Spawn + Console + Actor[SimpleMsg] = {
+  let me = Actor.self()
+  with_cell(0, step_done_first, (cell_pid) => driver(me, cell_pid))
+}
+
+fn main() : Int / Console + Spawn = {
+  with_mailbox { run() }
+  0
+}

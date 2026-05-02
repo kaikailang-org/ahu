@@ -1,0 +1,95 @@
+# tests/cell_behavior_switch.kai — Cell with sum-typed state for
+# behavior switching.
+#
+# Coverage: the design's load-bearing claim that "behavior
+# switches are encoded as a sum type for State (Active → Paused
+# → Draining)". Without this pattern, the cell would need a
+# dedicated abstraction (Akka Typed-style recursive Behavior)
+# that kaikai's effect-row-in-types restriction blocks. This
+# fixture verifies the workaround works in practice.
+#
+# Cell life cycle: starts in Active, processes Tick by
+# incrementing the inner counter, switches to Paused on Pause
+# (Tick is ignored while paused), switches back to Active on
+# Resume. Snapshot reports the value AND the variant tag so the
+# test can assert "behavior changed at the right time".
+
+import spawn
+import actor
+import cell
+
+type Mode = Active(Int) | Paused(Int)
+
+type ModeMsg = Tick | Pause | Resume | Snapshot(Pid[ModeMsg])
+             | SnapshotReply(String, Int)
+
+fn mode_step(m: Mode, msg: ModeMsg)
+  : StepResult[Mode] / Console + Actor[ModeMsg]
+= match m {
+    Active(v) -> match msg {
+      Tick                  -> keep(Active(v + 1))
+      Pause                 -> keep(Paused(v))
+      Resume                -> keep(m)
+      Snapshot(reply)       -> {
+        Actor.send(reply, SnapshotReply("Active", v))
+        keep(m)
+      }
+      SnapshotReply(_, _)   -> keep(m)
+    }
+    Paused(v) -> match msg {
+      Tick                  -> keep(m)
+      Resume                -> keep(Active(v))
+      Pause                 -> keep(m)
+      Snapshot(reply)       -> {
+        Actor.send(reply, SnapshotReply("Paused", v))
+        keep(m)
+      }
+      SnapshotReply(_, _)   -> keep(m)
+    }
+  }
+
+fn driver(me: Pid[ModeMsg], pid: Pid[ModeMsg])
+  : Unit / Console + Actor[ModeMsg]
+= {
+  Actor.send(pid, Tick)
+  Actor.send(pid, Tick)
+  Actor.send(pid, Snapshot(me))
+  match Actor.receive() {
+    SnapshotReply(tag, v) -> Stdout.print("snapshot 1: " ++ tag ++ " v=" ++ int_to_string(v))
+    Tick                  -> Stdout.print("driver: unexpected Tick")
+    Pause                 -> Stdout.print("driver: unexpected Pause")
+    Resume                -> Stdout.print("driver: unexpected Resume")
+    Snapshot(_)           -> Stdout.print("driver: unexpected Snapshot")
+  }
+  Actor.send(pid, Pause)
+  Actor.send(pid, Tick)
+  Actor.send(pid, Tick)
+  Actor.send(pid, Snapshot(me))
+  match Actor.receive() {
+    SnapshotReply(tag, v) -> Stdout.print("snapshot 2: " ++ tag ++ " v=" ++ int_to_string(v))
+    Tick                  -> Stdout.print("driver: unexpected Tick")
+    Pause                 -> Stdout.print("driver: unexpected Pause")
+    Resume                -> Stdout.print("driver: unexpected Resume")
+    Snapshot(_)           -> Stdout.print("driver: unexpected Snapshot")
+  }
+  Actor.send(pid, Resume)
+  Actor.send(pid, Tick)
+  Actor.send(pid, Snapshot(me))
+  match Actor.receive() {
+    SnapshotReply(tag, v) -> Stdout.print("snapshot 3: " ++ tag ++ " v=" ++ int_to_string(v))
+    Tick                  -> Stdout.print("driver: unexpected Tick")
+    Pause                 -> Stdout.print("driver: unexpected Pause")
+    Resume                -> Stdout.print("driver: unexpected Resume")
+    Snapshot(_)           -> Stdout.print("driver: unexpected Snapshot")
+  }
+}
+
+fn run() : Unit / Spawn + Console + Actor[ModeMsg] = {
+  let me = Actor.self()
+  with_cell(Active(0), mode_step, (pid) => driver(me, pid))
+}
+
+fn main() : Int / Console + Spawn = {
+  with_mailbox { run() }
+  0
+}
