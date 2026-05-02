@@ -1,9 +1,12 @@
 # ahu
 
-OTP-style framework for kaikai: behaviors, supervisors, and
-applications layered on top of `Actor[Msg]`, `Spawn`, `Cancel`, `Link`,
-and `Monitor`. The full surface lives in `docs/design.md`; this file is
-the cross-cutting conventions agents must follow.
+Concurrency and fault-tolerance framework for kaikai: three
+composable layers — *streams*, *cells*, *restart helpers* — built on
+`Actor[Msg]`, `Spawn`, `Cancel`, `Link`, `Monitor`, and the kaikai
+effect system. **Not** an OTP clone; the patterns OTP got right are
+reshaped to kaikai's primitives, the rest is dropped. The full
+surface and rationale live in `docs/design.md`; this file is the
+cross-cutting conventions agents must follow.
 
 ## Project language conventions
 
@@ -42,27 +45,33 @@ open in another window. The full text lives upstream in
 
 ### Tier 2 — Aspirational
 
-4. **Few forms, each with clear intent.** `Behavior` is the one shape
-   for long-running stateful processes; `Supervisor` is the one shape
-   for restart trees; `Application` is the one shape for the boot
-   entry point. No alternate framings (no `Agent`, no `Task`, no
-   `GenStateMachine`) in ahu-Tongariki — the canonical surface stays
-   small until usage data motivates additions.
-5. **Approachable core, novel where it pays off.** OTP veterans
-   should recognise behaviors and supervisors immediately. The
-   novelty is in the typed mailboxes (Pony-style), the typed
-   region-branded `Pid[Msg]` (kaikai), and the effect-row
-   propagation through callbacks (kaikai effects).
-6. **Few visible concepts, layered.** A program that uses only one
-   behavior pays for nothing else.
+4. **Few forms, each with clear intent.** `Cell` is the one shape
+   for long-running stateful entities. `Source` / `Flow` / `Sink`
+   are the three shapes for stream-based data flow. `with_restart`
+   / `restartable_cell` are the only two restart-policy helpers.
+   No alternate framings (no `Agent`, no `Task`, no
+   `GenStateMachine`, no `Supervisor` type) in ahu-Tongariki —
+   the canonical surface stays small until usage data motivates
+   additions.
+5. **Approachable core, novel where it pays off.** Reactive-streams
+   veterans recognise `Source`/`Flow`/`Sink` immediately;
+   Akka-Typed users recognise the recursive-function cell shape.
+   The novelty is in the typed mailboxes (`Pid[Msg]`), the
+   region-branded scoping (kaikai), the effect rows in every
+   signature (kaikai), and the recovery of OTP supervision
+   strategies as nursery placement rather than as a separate enum.
+6. **Few visible concepts, layered.** A program that uses only
+   streams pays for nothing in cells or restart. A program with
+   one cell and no crashes pays for nothing in restart. A program
+   that uses kaikai primitives directly pays for none of ahu.
 
 ### Tier 3 — Strategic bet
 
-7. **LLM authorability.** ahu's surface is intentionally narrow and
-   structurally repetitive (record-of-callbacks per behavior,
-   declarative supervisor specs). The structured form makes
-   completion-by-template a viable LLM workflow once `kai lsp` ships
-   in `kaikai-Anga Roa`.
+7. **LLM authorability.** ahu's surface is intentionally narrow
+   and structurally repetitive (recursive-function cells, algebraic
+   stream combinators, two restart helpers). The structured form
+   makes completion-by-template a viable LLM workflow once
+   `kai lsp` ships in `kaikai-Anga Roa`.
 
 ### Tie-breakers
 
@@ -126,22 +135,34 @@ gate.
   needs), document it in `docs/design.md` §*External dependencies on
   kaikai* and surface it as a kaikai issue. Do not patch kaikai from
   this repository.
-- **Do not introduce alternate process abstractions** in ahu-Tongariki.
-  No `Agent`, no `Task`, no `GenStateMachine`. One behavior shape,
-  one supervisor shape. Specialised behaviours come post-Tongariki
-  with usage data.
-- **Do not reach for a global registry, a global supervisor, or any
-  other ambient state**. The kaikai region-brand on `Pid[Msg]` is
-  load-bearing for safety. Designs that want to share Pids across
-  unrelated nurseries must go through an explicit handoff or, post-
-  Tongariki, a per-nursery `Registry` capability — see
-  `docs/design.md` §*Decision 3*.
+- **Do not clone OTP.** Cells are not gen_servers; restart helpers
+  are not Supervisors; `run_app` is not an OTP Application. If
+  the design instinct is to "transliterate the gen_X callback
+  table" or "add a `Strategy` enum", stop and re-read
+  `docs/design.md` §*Why ahu is not OTP*. The patterns OTP got
+  right are kept in shape; the OTP-specific machinery is not.
+- **Do not introduce alternate cell shapes** in ahu-Tongariki.
+  No `Agent`, no `Task`, no `GenStateMachine`. One cell shape,
+  one stream shape, two restart helpers. Specialised forms come
+  post-Tongariki with usage data, never pre-emptively.
+- **Do not introduce a `Supervisor` type.** Supervision falls out
+  of nursery placement plus restart helpers. See
+  `docs/design.md` §*Decision 3*. If a use case really needs more
+  than nurseries + restart, document it as a follow-up; do not
+  invent a new abstraction inline.
+- **Do not reach for a global registry, a global supervisor, or
+  any other ambient state**. The kaikai region-brand on
+  `Pid[Msg]` is load-bearing for safety. Designs that want to
+  share Pids across unrelated nurseries must go through an
+  explicit handoff or, post-Tongariki, a per-nursery `Registry`
+  capability — see `docs/design.md` §*Decision 4*.
 - **Do not design for hot code reload.** Kaikai compiles to native
-  binaries via LLVM; versioned module loading is incompatible with
-  the runtime model. See `docs/design.md` §*Decision 4*.
+  binaries via LLVM; versioned module loading is incompatible
+  with the runtime model. See `docs/design.md` §*Decision 5*.
 - **Do not design for distribution** in ahu-Tongariki or
   ahu-Anga Roa. Cross-node Pids land at the earliest in ahu-Orongo
-  and depend on a serialisation protocol that is not yet specified.
+  and depend on a serialisation protocol that is not yet
+  specified.
 - **Do not design against post-MVP targets** (Windows, WASM,
   multi-thread scheduler) but do not invest effort in them either.
 
