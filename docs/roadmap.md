@@ -23,11 +23,16 @@ roadmap still references the placeholder names `ahu-db` and
 
 ## Status snapshot
 
-- **HEAD**: `350b7a6 ahu: M4 — roadmap.md ...` (about to be
-  superseded by this rewrite). No implementation; design lane
-  in flight on `ahu-design-v1`.
-- **Current target**: `ahu-Tongariki` (MVP definition). The
-  design itself lives in `docs/design.md`.
+- **HEAD (2026-05-03)**: ahu-Tongariki **shipped**. Three
+  modules under `src/ahu/` (`cell.kai`, `restart.kai`,
+  `app.kai`), four examples (`counter`, `pipeline`,
+  `resilient_counter`, `echo`), 13 tier1 fixtures. `VERSION`
+  is `0.0.1`, ready for the integrator to bump to `0.1.0`
+  per CLAUDE.md §*Integrator workflow B*.
+- **Current target**: `ahu-Anga Roa`. Design itself for
+  Tongariki is frozen in `docs/design.md`; Anga Roa scope is
+  pinned in §*Anga Roa* below, awaiting downstream user
+  feedback before lanes open.
 - **Cross-cutting principles** (per `CLAUDE.md`, inherited from
   kaikai):
   - Tier 1 #1 (effects in types) — covered by row-polymorphic
@@ -35,15 +40,19 @@ roadmap still references the placeholder names `ahu-db` and
     (`Source[T, e]`, etc.); defendible.
   - Tier 1 #2 (runtime efficiency) — depends on kaikai
     monomorphising the recursive-function shape of cells and
-    the type-parameterised stream combinators; not yet
-    measured.
+    the type-parameterised stream combinators. Closer to
+    holding without footnote after kaikai #82's mailbox-helper
+    RC audit (no leak per `mailbox_send`); not yet benchmarked.
   - Tier 1 #3 (fast compilation) — ahu introduces no new
     constraint solvers, no HKTs, no row polymorphism in
     constraint position. Defendible.
-- **Upstream blockers for implementation**: see
-  `docs/design.md` §*External dependencies on kaikai* — same
-  three gaps as before (blocking-receive, `BlockSender`
-  delivery, effect-row through record fields).
+- **Upstream status**: all eight Tongariki blockers have closed
+  upstream; see `docs/design.md` §*External dependencies on
+  kaikai → Closed*. Newly available kaikai pieces relevant to
+  Anga Roa lanes (fs.file v1, os.env/args, Clock default
+  handler, AVL `Map` + `m[k]` sugar, multi-arg match, LLVM
+  Phase 2 unbox, mailbox RC audit, **union types**) are
+  catalogued in §*Newly available* of the same document.
 
 ## Milestones — ahu framework
 
@@ -162,7 +171,13 @@ framework to where teams build production systems with it.
 - **Process registry** — per-nursery `Registry` capability,
   designed in a dedicated `docs/registry.md` at the start of
   this milestone. Decided shape pinned with usage data from
-  ahu-Tongariki users.
+  ahu-Tongariki users. Carrier dependency cleared upstream:
+  `Map[K, V]` is now AVL-backed (O(log n)) and `m[k]` is
+  sugar for `map_get`; the kaikai changelog (0.37.0
+  Unreleased) explicitly notes this *"closes the unblock for
+  ahu's Registry primitive"*. Error type is the canonical
+  union-of-errors shape unlocked by kaikai #187:
+  `type RegistryError = LookupError | RegisterError`.
 - **Cell.ask helper** — synchronous request/reply pattern as
   a first-class function over the `with_mailbox` shape, if
   Tongariki demos show the pattern is common.
@@ -170,13 +185,30 @@ framework to where teams build production systems with it.
   identical workers under a nursery and round-robins
   messages. Trivial layer over Tongariki primitives, ships
   only if the pattern recurs.
+- **Cell behavior composition via union message types** —
+  unlocked by kaikai #187 union types. A cell whose mailbox
+  carries the union of per-feature message types (e.g.
+  `type CombinedMsg = CounterMsg | LoggingMsg | AdminMsg`)
+  delegates by `bind : Type` narrowing arms to per-layer
+  handlers, without the wrapper-sum tax. Documented as the
+  recommended pattern when a cell aggregates concerns; not a
+  new module.
 - **Stream extensions** — windowing (`Flow.window`), grouping
   (`Flow.group_by`), broadcast / fanout, error-recovery
-  combinators (`Flow.recover_with`).
+  combinators (`Flow.recover_with`). `Flow.window` /
+  `throttle` benefit from the `Clock` default handler now
+  shipping in `stdlib/time.kai`. `Flow.recover_with` carries
+  a `PipelineError = SourceError | TransformError | SinkError`
+  union, again courtesy of kaikai #187.
 - **Diagnostic surface** — pretty restart traces, cell-tree
   dump on `SIGUSR1`, structured JSON output for restart
   events. Plugs into `kaikai-Anga Roa`'s `kai lsp` and
-  diagnostic JSON contract.
+  diagnostic JSON contract. Persistence to disk uses
+  `fs.file.append` (kaikai 0.37.0 Unreleased Tier S1 #1).
+- **`ahu.log` / `ahu.config`** — structured logging on top of
+  `fs.file` + `Clock` (timestamped entries) and config
+  loading from environment via `os.env.get`. Both stdlib
+  pieces newly available post-Tongariki.
 - **Reference applications** — beyond `echo`: a websocket
   chat server using cells per session + a broadcast stream;
   a back-pressured ETL pipeline reading a file and writing
@@ -234,7 +266,11 @@ footnotes.
   for start, message-handled, restart, terminate; every
   stream stage emits per-element / per-batch events. Drains
   through a `Telemetry` effect that programs handle to log,
-  trace, or push to metrics.
+  trace, or push to metrics. Event payload is the union
+  `type TelemetryEvent = CellEvent | StreamEvent | RestartEvent`
+  (kaikai #187), so handlers can pattern-match on the
+  category they care about via `bind : Type` arms and ignore
+  the rest.
 - **Multi-thread scheduler awareness** — `kaikai-Orongo`
   ships work-stealing across N OS threads. ahu must verify
   that cross-thread mailbox messages, restart wrappers, and

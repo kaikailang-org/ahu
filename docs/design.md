@@ -3,9 +3,9 @@
 Living document for the kaikai-native concurrency and fault-tolerance
 framework that runs underneath manutara and friends.
 
-> **Status (2026-05-02 evening):** All four kaikai upstream
-> issues filed during the Tongariki implementation lanes have
-> closed in kaikai 0.36.x:
+> **Status (2026-05-03):** ahu-Tongariki shipped. All four
+> upstream issues filed during the Tongariki implementation
+> lanes closed in kaikai 0.35.x / 0.36.x:
 >
 > - `lnds/kaikai#103` (trap-exit beats outer Cancel handler)
 > - `lnds/kaikai#104` (nested mailbox + trap-exit segfault)
@@ -26,6 +26,16 @@ framework that runs underneath manutara and friends.
 > two examples diff their stdout against frozen
 > `.out.expected` in tier1.
 >
+> Post-Tongariki, kaikai 0.37.0 + Unreleased adds Tier S1
+> stdlib pieces that motivate Anga Roa work but do not
+> retrofit Tongariki: `stdlib/fs/file` v1, `stdlib/os/env` +
+> `os/args`, `Clock` default handler, `m[k]` indexing sugar
+> with an AVL `Map` carrier (the kaikai changelog explicitly
+> notes this *"closes the unblock for ahu's Registry
+> primitive"*), multi-arg `match` sugar, and the LLVM
+> backend's Phase 2 unbox mirror. See §*External
+> dependencies on kaikai → Newly available* below.
+>
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
 > Rationale: Erlang's OTP solutions exist to compensate for
@@ -40,7 +50,7 @@ framework that runs underneath manutara and friends.
 
 ## Context
 
-ahu is the second layer of the five-project lnds ecosystem:
+ahu is the second layer of the lnds ecosystem:
 
 ```
 kaikai      (the language)
@@ -51,14 +61,26 @@ kohau       (database / persistence)
    ↓
 henua       (DDD building blocks)
    ↓
-manutara    (web framework, LiveView-shaped)
+   ├──▶ manutara    (web framework, LiveView-shaped)
+   └──▶ hopu        (background jobs / queue / scheduler)
 ```
+
+`manutara` and `hopu` are sibling consumers of the lower stack:
+`manutara` handles the synchronous request-response face (web), and
+`hopu` handles the asynchronous job face (background workers,
+persistent queues, periodic scheduling — the analog of Oban /
+Sidekiq / Celery). Neither depends on the other.
 
 Names follow the Rapa Nui vocabulary established by `kaikai` and
 `ahu`. `kohau` is the inscribed wooden tablet that carried the
 rongorongo script — the substrate metaphor maps cleanly to a
 persistence layer. `henua` means *land / territory / domain* — the
-DDD-vocabulary mapping is direct.
+DDD-vocabulary mapping is direct. `manutara` is the migratory bird
+whose arrival opened the Tangata Manu rite; `hopu` is the swimmer-
+messenger who crossed to Motu Nui to retrieve the manutara's egg —
+the functional parallel: the framework that fetches and executes a
+delegated task in background. Naming rationale lives in
+`kaikai-docs/framework-naming.md`.
 
 ahu's job, in one sentence: **package kaikai's effect, fiber, and
 mailbox primitives into three composable layers — streams, cells,
@@ -814,18 +836,88 @@ All blockers from the original design have closed upstream:
    parks until any subscribed signal fires. Unblocks
    `run_app` bootstrap (future ahu lane).
 
-### Open
+### Newly available (post-Tongariki, kaikai 0.37.0 + Unreleased)
 
-All four upstream issues filed during ahu-Tongariki
-implementation lanes (`#103`, `#104`, `#106`, `#107`) have
-**closed** in kaikai 0.35.x / 0.36.x. The followup ahu work
-that each unlocks is tracked in §*What's next* below.
+Features that landed upstream after ahu-Tongariki shipped. None
+retrofit Tongariki — they enable Anga Roa lanes:
 
-### Open (watch items, not confirmed gaps)
+1. **`stdlib/fs/file` v1.** `fs.file.read_file`,
+   `fs.file.write_file`, `fs.file.append`. Tier S1 #1 of
+   `kaikai/docs/stdlib-roadmap.md`, motivated explicitly by ahu
+   (logging, supervisor checkpoints). `fs.dir.*` and `fs.path.*`
+   are doc-only stubs pending runtime primitives + the m14
+   module rename. **Unlocks**: `ahu.log` structured logging,
+   any future cell that persists snapshot state.
+2. **`stdlib/os/env` + `os/args`.** `env.get(name) :
+   Option[String]`, `args.argv() : [String]`. Partial Tier S1 #2
+   — `set_var` / `unset_var` / `vars` and `argv[0]` are blocked
+   by `lnds/kaikai#127`; the entire `Process` family is blocked
+   by `lnds/kaikai#126`. **Unlocks**: `run_app` config loader
+   (read `PORT` / `AHU_LOG_LEVEL` etc. on startup, OTP analogue
+   of `:application.get_env/2`).
+3. **`Clock` default handler in `stdlib/time.kai`.**
+   `time.now()` / `time.monotonic()` / `time.sleep(d)` work
+   without the caller installing a handler. **Unlocks**:
+   `with_restart` with backoff (sleep between retries).
+   **Caveat**: `sleep_ns` blocks the OS thread under v1's
+   inline-eager scheduler — same OS-thread-blocking cliff as
+   `Signal.await()`. See watch item §*Open watch items* below.
+4. **`m[k]` indexing sugar + `Map[K, V]` AVL carrier.**
+   `e1[e2]` over `Map[K, V]` lowers to `map_get(e1, e2) :
+   Option[V]`; lookup/insert/remove are now O(log n). The
+   kaikai changelog calls this out explicitly: *"Closes the
+   unblock for ahu's Registry primitive"*. **Unlocks**: the
+   per-nursery `Registry` capability (Decision 4 / Anga Roa)
+   no longer has to wait on a better map carrier.
+5. **Multi-arg `match` sugar.** `match a, b { p1, p2 -> body
+   | ... }` for 2 ≤ N ≤ 4. **Impact**: stylistic — cell `step`
+   functions and Layer 1 stream combinators that match on
+   `(state, msg)` pairs can drop the synthetic tuple wrapper.
+   No API change.
+6. **LLVM backend Phase 2 unbox mirror (kaikai #87).**
+   `--emit=llvm` now emits raw `i64` / `double` for hot
+   numeric loops, matching the C backend's Tier 2.5 unbox. Was
+   IR-shape-correct before but boxed every value. **Impact**:
+   counter / accumulator cells with primitive payloads benefit
+   transparently when ahu compiles via `--emit=llvm` (relevant
+   from Anga Roa benchmarking onwards, and load-bearing for
+   Orongo's multi-thread story).
+7. **Mailbox helper RC discipline (kaikai #82 audit).**
+   `mailbox_send` / `_recv` / `_alloc_bounded` /
+   `_assign_owner` / `_free` now decref correctly under
+   Perceus. Pre-fix `mailbox_send` leaked one ref per call.
+   **Impact**: long-running cells under high message volume
+   no longer accumulate refcount leaks. The Tier 1 #2
+   ("runtime-efficient") footnote in `docs/roadmap.md` moves
+   closer to holding without asterisks.
+8. **Union types (kaikai #187).** `type T = A | B | C` now
+   means union of types, not only nominal sum. Components can
+   be pre-existing types (records, sums, primitives, other
+   unions) or auto-declared at first mention. Implicit upcast
+   `T <: U` (one step) and `bind : Type` narrowing patterns
+   shipped together. **No retrofit needed in Tongariki**: the
+   three sum types ahu already exposes (`RestartPolicy`,
+   `RestartLimit`, `StepResult`) parse and behave unchanged
+   under the unified model — kaikai's release explicitly
+   confirms *"every `type T = A | B | ...` in stdlib worked
+   unmodified through all five phases"*. **Unlocks (Anga Roa
+   and beyond)**: composing cell mailbox types out of
+   per-feature message types without wrapper sums (e.g.
+   `type CombinedMsg = CounterMsg | LoggingMsg | AdminMsg`
+   with `bind : Type` arms delegating to per-layer handlers);
+   composing pipeline error types out of per-stage errors for
+   `Flow.recover_with`; composing `Registry` errors
+   (`LookupError | RegisterError`); composing telemetry
+   events (`CellEvent | StreamEvent`) for the Orongo
+   `Telemetry` effect. The motivating use case in the kaikai
+   doc — DDD bounded-context error composition — maps
+   directly onto ahu's per-layer error story.
 
-Two items the implementation passes did NOT exercise but the
-design depends on. Verification arrives during the streams
-implementation lane:
+### Open watch items (not confirmed gaps)
+
+Items the implementation passes did NOT exercise but the
+design depends on. Verification arrives during the relevant
+Anga Roa lane:
 
 1. **Free `start_cell : ... -> Pid[Msg]` constructor.** Kaikai's
    region-brand walker today consults a hardcoded allow-list
@@ -852,6 +944,30 @@ implementation lane:
    reflects this honestly. Closes when the kaikai nursery
    wraps `Spawn` and observes child terminations through
    `Link`.
+3. **OS-thread-blocking primitives under v1 scheduler.**
+   `Signal.await()` and `time.sleep(d)` both park the OS
+   thread under the inline-eager scheduler. While parked, no
+   other fibers run, and a `Cancel` delivered to the parked
+   fiber is observed only after wake-up. ahu's `run_app` is a
+   pass-through today for this reason; any future
+   `with_restart_backoff` helper using `time.sleep` between
+   retries inherits the same constraint. Closes when kaikai
+   m8.x ships the cooperative scheduler with timer-wheel +
+   reactor integration so both primitives become
+   `Cancel`-aware and yield through `Spawn.yield`.
+4. **Unified `ChildOutcome[E]` over Link/trap-exit + typed
+   error result.** Today a parent observes a child through
+   two distinct channels: `"Normal"` / `"Crashed"` strings
+   delivered to a trap-exit'd parent's mailbox (runtime
+   contract from Link), and any `Result[E, T]` the child
+   chose to return on the normal path. Now that union types
+   ship (kaikai #187), a unified shape is expressible:
+   `type ChildOutcome[E] = Normal | Crashed | Errored(E)`,
+   with `bind : Type` arms delegating per case. Whether to
+   adopt this for an Anga Roa supervisor helper, or keep the
+   two-channel split that mirrors BEAM, is a decision to take
+   with usage data from Tongariki — not pre-emptively. Filed
+   as a watch item, not a commitment.
 
 The design lane does not patch any of these — gaps are surfaced
 as kaikai issues coordinated separately.
