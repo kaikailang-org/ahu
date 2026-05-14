@@ -8,6 +8,19 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`examples/backpressured_etl/` — back-pressure reference
+  example.** A producer fiber feeds five strings into a
+  `with_mailbox_policy(Bounded(2, BlockSender))` mailbox; the
+  consumer (running on the main fiber) pops one at a time. The
+  trace shows the producer parking after three sends because the
+  mailbox has only two slots, then resuming as the consumer
+  drains. Stays outside `with_cell` deliberately: `with_cell`
+  spawns the cell with the unbounded `spawn_actor` and a
+  `spawn_actor_policy` does not exist upstream yet
+  (`stdlib/actor.kai` §`spawn_actor` v1 simplification). The
+  example doubles as living documentation for that gap. Tier1
+  grows to 16 fixtures.
+
 - **`cell.ask` — synchronous request/reply helper over the cell
   mailbox.** Promotes the listed Layer 2 follow-up to shipped:
   `ask(cell_pid, build_request) : Msg / Actor[Msg] + e` automates

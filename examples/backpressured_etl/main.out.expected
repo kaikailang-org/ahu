@@ -1,0 +1,12 @@
+producer: send #1 alpha
+producer: send #2 bravo
+producer: send #3 charlie
+consumer: got #1 len=5 alpha
+consumer: got #2 len=5 bravo
+producer: send #4 delta
+producer: send #5 echo
+consumer: got #3 len=7 charlie
+consumer: got #4 len=5 delta
+producer: send sentinel
+consumer: got #5 len=4 echo
+consumer: end
