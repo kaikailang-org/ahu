@@ -1,24 +1,23 @@
 # tests/stream_pipeline.kai — canonical ahu Layer 1 pipeline.
 #
-# ahu-Tongariki ships ZERO stream-layer code: the building
+# ahu ships no code for the eager pipeline shape: the building
 # blocks all live in kaikai stdlib + language syntax:
 #
-#   [a..b]      — range list literal (kaikai 0.x.x)
+#   [a..b]      — range list literal
 #   |           — map-pipe operator (m7b sugar)
 #   |>          — apply-pipe operator
 #   list.map / filter / foldl / foldr / foreach / ...
-#               — kaikai 0.35.x core.list higher-order helpers
-#                 (issue #106 closed in PR #113), each with a
-#                 row-poly callback so effects flow through.
+#               — kaikai core.list higher-order helpers, each
+#                 with a row-poly callback so effects flow
+#                 through.
 #
 # ahu's contribution at Layer 1 is convention plus this fixture
 # demonstrating the canonical shape with effectful callbacks.
-# `ahu/stream.kai` does not exist — there is nothing for ahu to
-# add at the eager-list-based level. Lazy/unbounded sources
-# (TCP listener, websocket frame generator, ticker) are
-# post-Tongariki work, gated on kaikai admitting row-poly type
-# parameters in records (so `Source[T, e]` becomes
-# expressible).
+# `ahu/stream.kai` does not exist for eager pipelines —
+# convention over aliases. Lazy / unbounded sources (TCP
+# listener, websocket frame generator, ticker) are deferred,
+# gated on kaikai admitting row-poly type parameters in records
+# (so `Source[T, e]` records become expressible).
 #
 # Coverage:
 #   - `[0..N]` range list literal as the source.
