@@ -7,10 +7,14 @@
 # Portable across any machine with `kai` on the PATH; no dev
 # checkout of kaikai required.
 #
-# Self-import note: `kai.toml` declares `ahu = { path = "." }` as a
-# workaround for kaikai#567. Once that lands and `kai build`
-# treats the manifest directory as an implicit search path, the
-# self-dep can be dropped without changes to this file.
+# Backend pin: `KAI_BACKEND ?= c` is exported below to work around
+# kaikai#570 — the LLVM backend in kaikai 0.56.x segfaults at runtime
+# on `spawn_actor`, taking down every fixture that touches a cell or
+# restart helper. The C backend produces working binaries for all 13
+# fixtures. Drop the export once kaikai#570 lands. See
+# `docs/known-regressions.md`.
+
+export KAI_BACKEND ?= c
 
 KAI ?= kai
 
