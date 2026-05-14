@@ -7,16 +7,11 @@
 # Portable across any machine with `kai` on the PATH; no dev
 # checkout of kaikai required.
 #
-# Backend pin: `KAI_BACKEND ?= c` is exported below to work around
-# kaikai#582 — kaikai 0.56.6 fixed most of the original #570
-# `spawn_actor` segfault, but `Cancel.raise()` from a fiber spawned
-# under a mailboxed parent still crashes under LLVM, which takes
-# down the 6 restart-flavoured fixtures. The C backend produces
-# working binaries for all 15 fixtures. Drop the export once
-# kaikai#582 lands. See `docs/known-regressions.md` §*kaikai#582*
-# for the 14-line standalone reproducer.
-
-export KAI_BACKEND ?= c
+# Backend selection: left to `kai`'s auto-detect (LLVM if clang is
+# in PATH, else C). kaikai 0.59 closed the residue of #570/#582 that
+# previously forced this Makefile to pin `KAI_BACKEND=c`; tier1
+# passes under both backends now. Override with `KAI_BACKEND=c` or
+# `KAI_BACKEND=llvm` if a particular path is needed for debugging.
 
 KAI ?= kai
 
