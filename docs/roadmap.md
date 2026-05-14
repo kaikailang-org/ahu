@@ -52,7 +52,7 @@ none is planned for eager pipelines — see `docs/design.md`
 
 ### Layer 2 — Cells (state: **shipped**, ahu/cell.kai)
 
-`StepResult[State]`, `keep`, `cell_done`, `with_cell`.
+`StepResult[State]`, `keep`, `cell_done`, `with_cell`, `ask`.
 A cell is a fiber + typed mailbox + recursive step function;
 the user writes `(State, Msg) -> StepResult[State] / e` and
 ahu drives it. Spec: `docs/design.md` §*Layer 2*.
@@ -66,11 +66,12 @@ row variable per row, and it must be the last item.
 
 **Possible follow-ups**:
 
-- **`cell.ask` helper** — synchronous request/reply over the
-  `with_mailbox` shape. Adds a function, not a new
-  abstraction. Worth shipping if usage data shows the
-  request/reply pattern is common enough that hand-rolling it
-  per cell becomes noise.
+- **Cross-mailbox request/reply** — `ask` today requires the
+  reply to be a variant of the cell's own `Msg` union, because
+  kaikai's `Actor.send : Pid[T] -> T` ties the destination pid
+  type to the active handler's Msg. A typed reply-channel
+  primitive distinct from the per-fiber mailbox would lift the
+  constraint; not implementable at user level today.
 - **Behavior composition via union message types** — a cell
   whose mailbox carries `CounterMsg | LoggingMsg | AdminMsg`
   delegates to per-layer handlers via `bind : Type` narrowing.
