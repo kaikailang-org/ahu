@@ -46,9 +46,9 @@ fn counter_step(value: Int, msg: CounterMsg)
     # Note: the cell's Stop branch does not print before exiting
     # because the driver may return from `with_cell` before the
     # scheduler gives the cell another tick. Structured shutdown
-    # (`with_cell` await-ing the cell's fiber) is an ahu-Tongariki
-    # follow-up — see docs/design.md §Layer 2 *Cells* and the
-    # restart helper lane.
+    # (`with_cell` await-ing the cell's fiber) is deferred — see
+    # docs/design.md §Layer 2 *Cells* and the open watch items
+    # for structured `with_cell` shutdown.
   }
 
 # Driver. Inside a with_mailbox of CounterMsg type so it can both

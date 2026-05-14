@@ -3,38 +3,27 @@
 Living document for the kaikai-native concurrency and fault-tolerance
 framework that runs underneath manutara and friends.
 
-> **Status (2026-05-03):** ahu-Tongariki shipped. All four
-> upstream issues filed during the Tongariki implementation
-> lanes closed in kaikai 0.35.x / 0.36.x:
+> **Status:** Layers 2 and 3 (cells, restart helpers,
+> `restartable_cell`), Layer 1 (streams as
+> convention-over-stdlib), and the `run_app` bootstrap are
+> shipped. The integration examples — `examples/echo/`
+> (TCP echo), `examples/resilient_counter/` (restart fault
+> tolerance), `examples/pipeline/` (Layer 1 ETL) and
+> `examples/counter/` (request/reply cell) — all live in the
+> repository. Component-by-component state is tracked in
+> `docs/roadmap.md`; ahu has no milestones.
 >
-> - `lnds/kaikai#103` (trap-exit beats outer Cancel handler)
-> - `lnds/kaikai#104` (nested mailbox + trap-exit segfault)
-> - `lnds/kaikai#106` (core.list higher-order helpers)
-> - `lnds/kaikai#107` (Signal effect for graceful shutdown)
->
-> Layer 2 (cells), Layer 3 (restart helpers +
-> `restartable_cell`), Layer 1 (streams), `run_app`
-> bootstrap, and the integration examples
-> (`examples/echo/`, `examples/resilient_counter/`,
-> `examples/pipeline/`) have all shipped. `with_restart`
-> uses BEAM-faithful `Cancel.raise()` for escalation;
+> `with_restart` uses `Cancel.raise()` for escalation;
 > `restartable_cell` boots a cell under restart supervision
 > with state-reset semantics; `run_app` is a v1 placeholder
-> until kaikai's reactor (m8.x scope) lands the
-> Signal-based graceful-shutdown integration. The TCP echo
-> demo runs end-to-end against `nc` on localhost; the other
-> two examples diff their stdout against frozen
-> `.out.expected` in tier1.
+> until kaikai's reactor lands the Signal-based
+> graceful-shutdown integration.
 >
-> Post-Tongariki, kaikai 0.37.0 + Unreleased adds Tier S1
-> stdlib pieces that motivate Anga Roa work but do not
-> retrofit Tongariki: `stdlib/fs/file` v1, `stdlib/os/env` +
-> `os/args`, `Clock` default handler, `m[k]` indexing sugar
-> with an AVL `Map` carrier (the kaikai changelog explicitly
-> notes this *"closes the unblock for ahu's Registry
-> primitive"*), multi-arg `match` sugar, and the LLVM
-> backend's Phase 2 unbox mirror. See §*External
-> dependencies on kaikai → Newly available* below.
+> Open upstream issues that affect ahu against the current
+> kaikai release are tracked in `docs/known-regressions.md`.
+> At time of writing, `spawn_actor` (kaikai#570) regressed
+> in kaikai 0.56.x and that puts tier1 (run-and-diff) in red;
+> tier0 (compile-only) remains green at 13 fixtures.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -209,10 +198,11 @@ recur, not a mandatory shell around every concurrent program.
 
 ### Layer 1 — Streams
 
-**ahu-Tongariki ships ZERO stream-layer code.** The pipeline
-combinators all live in kaikai's stdlib + language syntax; ahu's
-contribution at this layer is the canonical pipeline pattern
-plus a fixture demonstrating it with effectful callbacks.
+**ahu ships no stream-layer code for the eager pipeline shape.**
+The combinators all live in kaikai's stdlib + language syntax;
+ahu's contribution at this layer is the canonical pipeline
+pattern plus a fixture demonstrating it with effectful
+callbacks.
 
 The building blocks are:
 
@@ -266,10 +256,10 @@ Lazy / unbounded sources do not fit the eager-list shape:
 These need either upstream support for row-poly type
 parameters in records (so `Source[T, e]` becomes expressible)
 or a function-value-based encoding that composes through
-`|>` end-to-end. Both are post-Tongariki work. The TCP echo
-MVP target therefore uses an explicit nursery + per-connection
+`|>` end-to-end. Neither is currently available. The TCP echo
+example therefore uses an explicit nursery + per-connection
 cell (Layer 2) + restart wrapper (Layer 3) loop instead of a
-streamed source — see §End-to-end MVP verification.
+streamed source — see §End-to-end verification.
 
 **Why ahu does not re-export `list.*` under `stream.*`:**
 
@@ -278,7 +268,7 @@ The stdlib spelling stays canonical. Aliasing
 prefix ahu prefers without adding any expressive power.
 Convention is the cheaper fix: ahu code uses `list.*` directly
 plus the `[..]` / `|` / `|>` syntax. When lazy sources land,
-they get their own ahu module (`src/source.kai` or similar) —
+they get their own ahu module (`ahu/source.kai` or similar) —
 new surface, not aliases.
 
 ### Layer 2 — Cells
@@ -291,7 +281,7 @@ internal mutation); behaviour switches are encoded as a sum
 type for State (Active → Paused → Draining as variants).
 
 ```kai
-# In src/ahu/cell.kai (imported as `import ahu.cell`):
+# In ahu/cell.kai (imported as `import ahu.cell`):
 pub type StepResult[State] = Continue(State) | Done
 
 pub fn keep[State](s: State) : StepResult[State] = Continue(s)
@@ -371,9 +361,10 @@ one `Actor[Msg]` effect can both send to and receive from any
 pid of that Msg type. Cross-type request/reply via two separate
 `Actor[A]` and `Actor[B]` effects is not expressible in current
 kaikai (one mailbox per fiber; see `kaikai/docs/actors.md`
-§*Open questions* #4). A `Cell.ask(pid, build_request)` helper
-that opens an inner `with_mailbox` for the reply lands in
-ahu-Anga Roa once the pattern recurs.
+§*Open questions* #4). A `cell.ask(pid, build_request)` helper
+that opens an inner `with_mailbox` for the reply can land
+once the pattern recurs in real code — see `docs/roadmap.md`
+§*Layer 2 — Cells*.
 
 **Composing cells:** request/reply uses `with_mailbox` on the
 caller side (kaikai pattern from `actors.md` §*with_mailbox*):
@@ -389,8 +380,8 @@ fn ask_counter(c: Pid[CounterMsg]) : Int / Spawn + Actor[Int] = {
 
 No "synchronous call" abstraction in ahu's surface — request/reply
 is a pattern, not a primitive. If usage data shows the pattern is
-common enough to warrant a helper, `Cell.ask(pid, build_request)`
-ships in Anga Roa.
+common enough to warrant a helper, a `cell.ask(pid, build_request)`
+function can be added — see `docs/roadmap.md` §*Layer 2 — Cells*.
 
 ### Layer 3 — Restart helpers
 
@@ -403,7 +394,7 @@ helpers compose with nurseries — a nursery + N children + N
 restart wrappers **is** your supervision tree.
 
 ```kai
-# In src/ahu/restart.kai (imported as `import ahu.restart`):
+# In ahu/restart.kai (imported as `import ahu.restart`):
 pub type RestartPolicy = Permanent | Transient | Temporary
 pub type RestartLimit  = Limit(Int)               # intensity only in v1
 
@@ -558,12 +549,12 @@ The strategy is encoded by where the nursery boundary is drawn.
 
 `simple_one_for_one` (dynamic worker pool) is just a nursery + a
 loop spawning `restartable_cell` instances — no separate primitive.
-ahu may ship a `pool(n, body)` helper if usage data motivates it,
-but Tongariki does not.
+ahu may ship a `pool(n, body)` helper if usage data motivates it
+— see `docs/roadmap.md` §*Pool helper*.
 
 ## Decisions
 
-The seven load-bearing decisions for ahu-Tongariki, each closed.
+The seven load-bearing decisions for ahu, each closed.
 
 ### Decision 1 — Cells, not Behaviors
 
@@ -650,12 +641,13 @@ Rationale:
   the type means there is one shape (cells) for every long-
   lived stateful thing.
 
-### Decision 4 — No process registry in Tongariki, deferred to Anga Roa
+### Decision 4 — No process registry by default
 
 Same as the OTP-style draft. `Pid[Msg]` is region-branded;
-explicit handoff fits the type system. Per-nursery `Registry`
-capability is the leading candidate for Anga Roa once usage
-data exists.
+explicit handoff fits the type system. A per-nursery
+`Registry` capability is the leading candidate when real-world
+usage shows the need — see `docs/roadmap.md` §*Process
+registry*.
 
 Unchanged by the pivot — registry is a cross-cutting concern
 that lives orthogonally to streams-vs-cells.
@@ -671,70 +663,66 @@ The pivot makes this even more cleanly true: cells have no
 during deployment is a rolling-restart concern, not a framework
 concern.
 
-### Decision 6 — No distribution in Tongariki or Anga Roa
+### Decision 6 — No distribution in the current scope
 
-Same as the OTP-style draft. Cross-node Pids land in Orongo at
-earliest.
+Same as the OTP-style draft. Cross-node Pids are far-future
+work tracked in `docs/roadmap.md` §*Distribution*; the design
+surface for distributed streams (cross-node sources / sinks)
+and distributed cells (remote pids) is wider than the current
+local-only scope should absorb.
 
-The pivot does not change this. Distributed streams (cross-node
-sources / sinks) and distributed cells (remote pids) are both
-post-Orongo concerns; the design surface for either is wider than
-ahu-Tongariki should absorb.
+The pivot does not change this.
 
-### Decision 7 — ahu-Tongariki MVP scope (revised)
+### Decision 7 — surface and scope
 
-**In scope for ahu-Tongariki:**
+**In scope:**
 
-1. **Layer 1 — Streams.** `Source[T, e]`, `Flow[A, B, e]`,
-   `Sink[T, R, e]`, the canonical combinators (`map`, `filter`,
-   `flat_map`, `merge`, `throttle`, `buffer`), `from_list`,
-   `from_listener`, `tick`, `foreach`, `fold`, `collect`.
-   Demand-based backpressure with the kaikai `Overflow` enum
-   for buffer policy.
-2. **Layer 2 — Cells.** `Cell[Msg, e]`, `start_cell`,
-   `done()`, `stop()` (graceful termination from the outside).
-   The `receive { ... }` macro-free desugaring to
-   `Actor.receive()` + `match`.
+1. **Layer 1 — Streams.** The canonical pipeline shape over
+   kaikai's stdlib + language sugars (`[a..b]`, `|`, `|>`,
+   `list.map` / `filter` / `foldl` with row-poly callbacks).
+   No `ahu/stream.kai` for eager pipelines — convention over
+   aliases.
+2. **Layer 2 — Cells.** `StepResult[State]`, `keep`,
+   `cell_done`, `with_cell`. The recursive step-function shape:
+   `(State, Msg) -> StepResult[State] / e`. The
+   `receive { ... }` form desugars to `Actor.receive()` +
+   `match`.
 3. **Layer 3 — Restart helpers.** `RestartPolicy`,
    `RestartLimit`, `with_restart`, `restartable_cell`.
    Default limit `5 / 60s`.
 4. **Bootstrap helper.** `app.run_app(root)` (in
-   `src/ahu/app.kai`, imported as `import ahu.app`) subscribes
-   to `SIGINT` / `SIGTERM` via the kaikai `Signal` effect
-   (`lnds/kaikai#107`, landed 0.36.x), spawns `root` as a child
-   fiber, parks on `Signal.await()` until either signal fires,
-   then cancels the root fiber so its `Cancel` handlers run
-   before the process exits. Type signature:
+   `ahu/app.kai`, imported as `import ahu.app`). v1 placeholder;
+   the planned shape subscribes to `SIGINT` / `SIGTERM` via the
+   kaikai `Signal` effect, spawns `root` as a child fiber,
+   parks on `Signal.await()` until either signal fires, then
+   cancels the root fiber so its `Cancel` handlers run before
+   the process exits. Type signature when shipped:
    ```kai
    pub fn run_app[e](root: () -> Unit / Cancel + e)
      : Unit / Spawn + Signal + Cancel + Console + e
    ```
-   v1 inherits the kaikai Signal limitation that `Signal.await()`
-   blocks the OS thread — workers spawned before the await run
-   only at scheduler yield points. Reactor-driven non-blocking
-   integration arrives in kaikai m8.x.
-5. **Reference example.** `examples/echo/` — a tiny TCP echo
-   server using `Source.from_listener` + `Flow.flat_map` to
-   handle each connection inside a per-connection nursery.
-   Shows: streams as the request layer, cells for connection
-   state, restart wrapping the listener loop, `run_app` at the
-   top.
+   The v1 implementation just runs `root` directly. Signal
+   integration follows when kaikai's reactor lands.
+5. **Reference example.** `examples/echo/` — a TCP echo server
+   showing all three layers together: streams as the request
+   layer (eager today), cells for connection state, restart
+   wrapping the listener loop, `run_app` at the top.
 
-**Out of scope for ahu-Tongariki:**
+**Out of scope (see `docs/roadmap.md` for status of each):**
 
-- Process registry (Anga Roa).
-- Distribution (Orongo+).
-- Hot reload (never).
+- Process registry. Held back until usage data exists.
+- Distribution. Far-future.
+- Hot reload. Permanent non-goal.
 - Specialised cell shapes (`Agent`, `Task`-equivalents). Cells
   cover them; specialisation waits for usage data.
 - Pre-built `pool(n, body)` helper. Trivial to write with the
   primitives; ships only if pattern recurs in real ahu code.
-- `Cell.ask(pid, msg)` synchronous-request helper. Ships in
-  Anga Roa if request/reply pattern is common.
+- `cell.ask(pid, msg)` synchronous-request helper. Adds when
+  the request/reply pattern becomes common.
 - DSL macros for cell or stream declaration. Kaikai has no
   macros.
-- Pre-built telemetry hooks. Orongo, alongside kaikai's
-  diagnostic JSON surface.
+- Pre-built telemetry hooks. Tracked in the diagnostics
+  component.
 
 ### Repository layout
 
@@ -750,7 +738,8 @@ ahu/
     design.md            # this document
     roadmap.md
     lane-experience-*.md
-  src/
+  kai.toml               # package manifest (name = "ahu")
+  ahu/                   # module root — `import ahu.X`
     stream.kai           # Layer 1
     cell.kai             # Layer 2
     restart.kai          # Layer 3
@@ -760,30 +749,27 @@ ahu/
     echo/                # reference: TCP echo server
 ```
 
-## End-to-end MVP verification
+## End-to-end verification
 
-The Tongariki MVP target is the TCP echo server: a user with
+The TCP echo server is the integration target — a user with
 kaikai installed clones ahu, builds, tests, and runs the echo
 example end-to-end. Concretely:
 
 ```sh
-git clone github.com/lnds/ahu
+git clone github.com/kaikailang-org/ahu
 cd ahu
-KAI_HOME=../kaikai make tier1               # all fixtures green
+make tier1                                  # all fixtures green
 kai run examples/echo/main.kai &            # echo server boots
 echo "ping" | nc localhost 8080             # → "ping\n"
 kill -INT $!                                # graceful shutdown
 wait                                        # exit code 0
 ```
 
-**Current status (2026-05-02):** the `make tier1` step works
-today against the Layer 2 + Layer 3 fixtures (7 fixtures
-pass). The `examples/echo` integration target is gated on
-Layer 1 (streams) shipping — see *External dependencies* below
-for the upstream `lnds/kaikai#106` blocker.
-
-ahu-Tongariki is **fulfilled** when the full sequence above
-runs to completion against an unmodified kaikai checkout.
+**Current status:** tier0 (compile-only) is green at 13 fixtures
+against kaikai 0.56.x. tier1 (run-and-diff) is currently red
+because of a runtime regression in `spawn_actor` upstream
+(`kaikai#570`). See `docs/known-regressions.md` for the open
+upstream issues.
 
 ## External dependencies on kaikai
 
@@ -792,10 +778,10 @@ runs to completion against an unmodified kaikai checkout.
 All blockers from the original design have closed upstream:
 
 1. **Blocking `Actor.receive()` on an empty mailbox.** Closed
-   by kaikai m8.x runtime (landed v0.4.0; documentation
-   alignment in v0.32.0 / Tongariki Wave 3, kaikai PR #73). A
-   cell parked on `receive` now suspends via `swapcontext` and
-   resumes when a message arrives.
+   by kaikai's m8.x runtime (landed v0.4.0; documentation
+   alignment in v0.32.0, kaikai PR #73). A cell parked on
+   `receive` now suspends via `swapcontext` and resumes when a
+   message arrives.
 2. **`BlockSender` mailbox policy delivery.** Same kaikai m8.x
    work. All four mailbox policies (`Unbounded`, `Bounded(c,
    DropOldest|DropNewest|BlockSender)`) reach the runtime in
@@ -813,9 +799,9 @@ All blockers from the original design have closed upstream:
    callbacks. Layer 1's pipeline shape ships against this
    without ahu adding a stream module — see §Layer 1.
 5. **NetTcp v1.** Shipped in kaikai v0.33.0
-   (`stdlib/net/tcp.kai`). Once lazy stream sources land
-   post-Tongariki, `Source.from_listener(port)` will wrap the
-   `NetTcp` ops directly.
+   (`stdlib/net/tcp.kai`). Once lazy stream sources land,
+   `Source.from_listener(port)` will wrap the `NetTcp` ops
+   directly — see `docs/roadmap.md` §*Layer 1 — Streams*.
 6. **trap-exit beats outer Cancel handler.** Closed by kaikai
    PR #122 / `lnds/kaikai#103` in 0.36.0 — the runtime now
    converts a trap-exit'd child's `Cancel.raise()` to
@@ -827,19 +813,19 @@ All blockers from the original design have closed upstream:
 7. **Nested mailbox + trap-exit + `spawn_actor` segfault.**
    Closed by `lnds/kaikai#104`. The runtime bookkeeping for
    `mailbox_assign_owner` under nested `with_mailbox` scopes
-   while a fiber is trap-exit'd no longer crashes. Unblocks
-   `restartable_cell` (combined Layer 2 + Layer 3 helper —
-   future ahu lane).
+   while a fiber is trap-exit'd no longer crashes. Unblocked
+   `restartable_cell` (combined Layer 2 + Layer 3 helper).
 8. **`Signal` effect for graceful shutdown.** Closed by
    `lnds/kaikai#107` / PR #116 in 0.36.x — `Signal.on(sig)`
    subscribes to `SigInt` / `SigTerm` / etc., `Signal.await()`
-   parks until any subscribed signal fires. Unblocks
-   `run_app` bootstrap (future ahu lane).
+   parks until any subscribed signal fires. Will unblock the
+   full `run_app` bootstrap once integrated.
 
-### Newly available (post-Tongariki, kaikai 0.37.0 + Unreleased)
+### Newly available
 
-Features that landed upstream after ahu-Tongariki shipped. None
-retrofit Tongariki — they enable Anga Roa lanes:
+Features that landed upstream more recently. These do not
+retrofit existing components; they enable potential follow-up
+work tracked in `docs/roadmap.md`:
 
 1. **`stdlib/fs/file` v1.** `fs.file.read_file`,
    `fs.file.write_file`, `fs.file.append`. Tier S1 #1 of
@@ -867,8 +853,8 @@ retrofit Tongariki — they enable Anga Roa lanes:
    Option[V]`; lookup/insert/remove are now O(log n). The
    kaikai changelog calls this out explicitly: *"Closes the
    unblock for ahu's Registry primitive"*. **Unlocks**: the
-   per-nursery `Registry` capability (Decision 4 / Anga Roa)
-   no longer has to wait on a better map carrier.
+   per-nursery `Registry` capability (Decision 4) no longer
+   has to wait on a better map carrier.
 5. **Multi-arg `match` sugar.** `match a, b { p1, p2 -> body
    | ... }` for 2 ≤ N ≤ 4. **Impact**: stylistic — cell `step`
    functions and Layer 1 stream combinators that match on
@@ -879,9 +865,9 @@ retrofit Tongariki — they enable Anga Roa lanes:
    numeric loops, matching the C backend's Tier 2.5 unbox. Was
    IR-shape-correct before but boxed every value. **Impact**:
    counter / accumulator cells with primitive payloads benefit
-   transparently when ahu compiles via `--emit=llvm` (relevant
-   from Anga Roa benchmarking onwards, and load-bearing for
-   Orongo's multi-thread story).
+   transparently when ahu compiles via `--emit=llvm`; relevant
+   for any future benchmarking work and load-bearing for a
+   future multi-thread scheduler integration.
 7. **Mailbox helper RC discipline (kaikai #82 audit).**
    `mailbox_send` / `_recv` / `_alloc_bounded` /
    `_assign_owner` / `_free` now decref correctly under
@@ -895,20 +881,20 @@ retrofit Tongariki — they enable Anga Roa lanes:
    be pre-existing types (records, sums, primitives, other
    unions) or auto-declared at first mention. Implicit upcast
    `T <: U` (one step) and `bind : Type` narrowing patterns
-   shipped together. **No retrofit needed in Tongariki**: the
-   three sum types ahu already exposes (`RestartPolicy`,
-   `RestartLimit`, `StepResult`) parse and behave unchanged
-   under the unified model — kaikai's release explicitly
-   confirms *"every `type T = A | B | ...` in stdlib worked
-   unmodified through all five phases"*. **Unlocks (Anga Roa
-   and beyond)**: composing cell mailbox types out of
-   per-feature message types without wrapper sums (e.g.
+   shipped together. **No retrofit needed in shipped
+   components**: the three sum types ahu already exposes
+   (`RestartPolicy`, `RestartLimit`, `StepResult`) parse and
+   behave unchanged under the unified model — kaikai's release
+   explicitly confirms *"every `type T = A | B | ...` in
+   stdlib worked unmodified through all five phases"*.
+   **Unlocks**: composing cell mailbox types out of per-feature
+   message types without wrapper sums (e.g.
    `type CombinedMsg = CounterMsg | LoggingMsg | AdminMsg`
    with `bind : Type` arms delegating to per-layer handlers);
    composing pipeline error types out of per-stage errors for
    `Flow.recover_with`; composing `Registry` errors
    (`LookupError | RegisterError`); composing telemetry
-   events (`CellEvent | StreamEvent`) for the Orongo
+   events (`CellEvent | StreamEvent`) for a future
    `Telemetry` effect. The motivating use case in the kaikai
    doc — DDD bounded-context error composition — maps
    directly onto ahu's per-layer error story.
@@ -916,8 +902,8 @@ retrofit Tongariki — they enable Anga Roa lanes:
 ### Open watch items (not confirmed gaps)
 
 Items the implementation passes did NOT exercise but the
-design depends on. Verification arrives during the relevant
-Anga Roa lane:
+design depends on. Verification arrives whenever a lane lands
+that touches the relevant component:
 
 1. **Free `start_cell : ... -> Pid[Msg]` constructor.** Kaikai's
    region-brand walker today consults a hardcoded allow-list
@@ -925,8 +911,8 @@ Anga Roa lane:
    `kaikai/stage2/compiler.kai`: `fiber_spawn`,
    `spawn_actor`, `alloc_for_policy`) for which functions may
    return `Pid[Msg]` / `Fiber[T]`. User-code helpers — including
-   ahu's — are rejected. ahu-Tongariki ships `with_cell(initial,
-   step, body)` as the canonical entry point (mirroring
+   ahu's — are rejected. ahu ships `with_cell(initial, step,
+   body)` as the canonical entry point (mirroring
    `with_mailbox`'s shape); a free `start_cell` form is added
    once full `TyBranded(Ty, BrandId)` propagation lands
    upstream (`docs/fibers-honesty-targets.md` §*Residual m8.x
@@ -964,10 +950,10 @@ Anga Roa lane:
    ship (kaikai #187), a unified shape is expressible:
    `type ChildOutcome[E] = Normal | Crashed | Errored(E)`,
    with `bind : Type` arms delegating per case. Whether to
-   adopt this for an Anga Roa supervisor helper, or keep the
+   adopt this for a future supervisor helper, or keep the
    two-channel split that mirrors BEAM, is a decision to take
-   with usage data from Tongariki — not pre-emptively. Filed
-   as a watch item, not a commitment.
+   with usage data — not pre-emptively. Filed as a watch item,
+   not a commitment.
 
 The design lane does not patch any of these — gaps are surfaced
 as kaikai issues coordinated separately.
@@ -978,26 +964,27 @@ as kaikai issues coordinated separately.
   supervisors, or applications. The patterns are reshaped to
   kaikai's primitives, not transliterated.
 - **Hot code reload.** Permanent non-goal. See Decision 5.
-- **Cross-node distribution in Tongariki / Anga Roa.** See
+- **Cross-node distribution in the current scope.** See
   Decision 6.
-- **Process registry in Tongariki.** Anga Roa. See Decision 4.
+- **Process registry by default.** See Decision 4.
 - **DSL macros.** Kaikai has no macros.
 - **Phoenix-LiveView clone.** That is manutara's surface, not
   ahu's. ahu provides the substrate (streams + cells + restart);
   manutara picks how to expose them to view authors.
 - **Specialised cell shapes** (`Agent` for value containers,
   `Task` for one-shot computations). Cells are the one shape;
-  specialisations come post-Tongariki only if usage data shows
-  the recursive-function form gets in the way.
+  specialisations only land if usage data shows the
+  recursive-function form gets in the way.
 - **A `Supervisor` type.** Replaced by nurseries + restart
   helpers. See Decision 3.
 
 ## Roadmap pointer
 
-The full ahu milestone series — Tongariki / Anga Roa / Orongo /
-Anakena — lives in `docs/roadmap.md` of this repository. Each
-milestone has scope, definition-of-done, and sequencing
-constraints against kaikai milestones.
+ahu's component-level state lives in `docs/roadmap.md` of this
+repository — one section per component (cells, restart,
+streams, registry, distribution, logging, config, diagnostics)
+with state, possible follow-ups, and upstream dependencies.
+There are no milestones, no definitions-of-done, no calendar.
 
 ## References
 

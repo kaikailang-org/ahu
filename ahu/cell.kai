@@ -1,4 +1,4 @@
-# src/ahu/cell.kai — ahu Layer 2: long-running stateful entities.
+# ahu/cell.kai — ahu Layer 2: long-running stateful entities.
 # Imported by user code as `import ahu.cell`; functions are
 # accessed dotted (`cell.with_cell(...)`, `cell.keep(s)`,
 # `cell.cell_done()`); types stay bare (`StepResult[State]`).
@@ -20,7 +20,7 @@
 # propagation lands upstream (`fibers-honesty-targets.md`
 # §*Residual m8.x items*; the allow-list lives in the kaikai
 # compiler's `fiber_producer_helpers`). The with-shape is the
-# load-bearing form for ahu-Tongariki and reads cleanly:
+# load-bearing form for this module and reads cleanly:
 #
 #   with_cell(0, counter_step, (counter) => {
 #     Actor.send(counter, Increment)
@@ -69,6 +69,17 @@ pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 # its step function or its parent nursery cancels it. Effects of
 # `step` and `body` flow into the caller's row via the open row
 # variable `e`.
+#
+# Both `step` and `body` share the single row variable `e`. That
+# is a structural constraint imposed by kaikai's row system —
+# row syntax permits at most one open row variable per row, and
+# it must be the final item (see the typer's "row variable must
+# be the last item in the row" check). Callers whose step and
+# body have genuinely divergent effects must reconcile them at
+# the call site, typically by `handle`-ing the extra effects of
+# the body before entering the cell scope. The TCP echo example
+# is the canonical case where this constraint surfaces; see
+# `docs/known-regressions.md` for the workaround applied there.
 #
 # The body must coexist in the caller's `Actor[Msg]` row when it
 # wants to send to the cell (or receive replies from it through

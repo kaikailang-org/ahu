@@ -1,10 +1,10 @@
-# src/ahu/app.kai — ahu Tongariki bootstrap.
+# ahu/app.kai — bootstrap helper.
 # Imported by user code as `import ahu.app`; functions are
 # accessed dotted (`app.run_app(root)`).
 #
 # `run_app(root)` is the canonical entry point for an ahu
-# application. **In ahu-Tongariki it is a thin pass-through**:
-# it calls `root()` and returns whatever `root` returns.
+# application. **The v1 form is a thin pass-through**: it calls
+# `root()` and returns whatever `root` returns.
 #
 # Why a placeholder, not the Signal-based shape sketched in
 # `kaikai/docs/effects-stdlib.md` §Signal:
