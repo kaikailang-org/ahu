@@ -8,6 +8,21 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **Upstream tracking refresh against kaikai 0.56.4.** kaikai#567
+  landed: `kai build` now treats the manifest directory as an
+  implicit search path, so the `ahu = { path = "." }` self-dep was
+  removed from `kai.toml` (the Makefile note that described the
+  workaround is gone too). kaikai#570 is now classified as
+  LLVM-backend-only — the C backend produces working binaries for
+  all 13 fixtures, while the LLVM backend still segfaults inside
+  `spawn_actor`. The Makefile exports `KAI_BACKEND ?= c` so
+  `make tier1` passes out of the box; drop the pin once kaikai#570
+  lands upstream. `docs/known-regressions.md` snapshot rewritten
+  accordingly (kaikai#567 closed, kaikai#570 reclassified, the
+  workaround list now references the backend pin instead of the
+  self-dep). `docs/roadmap.md` restart-component status flipped
+  from "red against 0.56.x" to "green under the C backend"; the
+  upstream-dependency summary at the bottom restated.
 - **Roadmap model: components, not milestones.** `docs/roadmap.md`
   rewritten from the Tongariki / Anga Roa / Orongo / Anakena
   milestone series to a per-component layout (cells, restart,
