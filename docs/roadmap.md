@@ -135,15 +135,34 @@ JSON output for restart events. Would plug into kaikai's
 stabilises. Persistence to disk via `fs.file.append`
 (available in stdlib).
 
-### Logging (state: **idea**)
+### Logging (state: **shipped**, ahu/log.kai)
 
-`ahu/log.kai` — structured key/value events on top of
-`stdlib/log.kai`'s four-level surface. Adds level filtering,
-structured fields, async fan-out to multiple sinks
-(stderr + `fs.file`), timestamp via `Clock`. The stdlib
-`log.kai` comment explicitly points at ahu as the home for
-this wrapper. Concrete enough that a lane could open at any
-time.
+Structured key/value events on top of `stdlib/log.kai`'s
+four-level surface: `LogLevel`, `Field` (closed sum over
+String/Int/Bool), `log.{debug,info,warn,error}_kv(msg, fields)`
+emitting logfmt-like lines through the existing `Log` ops, and
+pure formatters (`format_field`, `format_fields`,
+`format_event`) for callers that render outside the `Log`
+effect. The stdlib `log.kai` comment that pointed at ahu as the
+home for this wrapper is now satisfied for the structured-fields
+half. Spec: `ahu/log.kai` header.
+
+**Possible follow-ups**:
+
+- **Level filtering as a handler combinator**
+  (`with_min_level`). The natural shape — a `Log` handler that
+  drops or re-emits via `Log.X` — re-enters itself; a clean
+  implementation needs either a `StructuredLog` effect parallel
+  to `Log` or an outer-handler-delegate primitive that has not
+  been designed upstream. Filtering today belongs in the user's
+  own `Log` handler.
+- **Async fan-out to multiple sinks** (stderr + `fs.file`).
+  Depends on the kaikai m8.x reactor for non-blocking file
+  writes; sync fan-out is straightforward in a user `Log`
+  handler.
+- **Wider field types** — `FloatField`, `BytesField`, etc. One-
+  line additions to the `Field` sum once a real consumer needs
+  them.
 
 ### Config (state: **idea**)
 
