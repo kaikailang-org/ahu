@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **`ahu/log.kai` — structured-fields wrapper over the stdlib `Log`
+  effect.** Promotes the Logging component from "idea" to "shipped"
+  in `docs/roadmap.md`. Surface: `LogLevel = Debug | Info | Warn |
+  Error`; `Field = StringField | IntField | BoolField` (closed sum,
+  avoids a heterogeneous Map); `log.{debug,info,warn,error}_kv(msg,
+  fields) : Unit / Log` formatting fields as `k=v` pairs and
+  forwarding to the matching `Log` op; pure helpers `format_field`,
+  `format_fields`, `format_event` for callers that render outside
+  the `Log` effect. The implementation is a pure-formatting wrapper
+  — no new effect, no handler combinators that re-emit `Log` — so
+  the row stays `Log` and a user-installed `Log` handler observes
+  the same already-formatted string the stdlib default handler
+  would print. v1 deferrals (level-filter handler combinator, async
+  fan-out to `fs.file`, timestamps via `Clock`, trace context,
+  redaction, rotation) are documented in the module header with
+  the upstream gaps that block each one. Tier1 grows from 13 to
+  14 fixtures with `tests/log_basic.kai`.
+
 ### Changed
 
 - **Upstream tracking refresh against kaikai 0.56.4.** kaikai#567
