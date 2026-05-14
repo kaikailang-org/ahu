@@ -1,0 +1,75 @@
+# examples/backpressured_etl/main.kai — backpressured stream
+# example using a `Bounded(2, BlockSender)` mailbox.
+#
+# A producer fiber feeds five lines into a 2-slot mailbox. The
+# consumer (running on the main fiber inside the mailbox handler)
+# pops one line at a time, transforms it (length tag), and prints
+# the result. The producer parks on the third send because the
+# mailbox is full; it resumes only after the consumer drains a
+# slot. The trace shows interleaved produce/consume lines that
+# witness the back-pressure: the producer never gets more than two
+# sends ahead of the consumer.
+#
+# Why this lives outside `ahu/cell.kai`. `with_cell` internally
+# spawns the cell with the unbounded-mailbox `spawn_actor`, so a
+# cell-driven version cannot exercise `BlockSender` today —
+# `spawn_actor_policy` is an explicit upstream follow-up
+# (`stdlib/actor.kai` §`spawn_actor` v1 simplification). Until
+# that lands, ahu's back-pressure story uses the underlying
+# `with_mailbox_policy` + `fiber_spawn` shape directly. The
+# example also doubles as documentation for that gap.
+#
+# Coverage:
+#   - `with_mailbox_policy(Bounded(2, BlockSender))` — the
+#     mailbox installed on the main fiber accepts at most two
+#     queued messages before the next `Actor.send` parks.
+#   - `fiber_spawn` for the producer side; the producer's
+#     `Actor.send` calls go through main's mailbox, so
+#     back-pressure parks the producer fiber when the slots are
+#     full.
+#   - Sentinel-driven shutdown (`""` empty string marks end of
+#     stream).
+#   - Deterministic output under the kaikai cooperative
+#     scheduler (FIFO ready queue + send/receive wake order).
+
+import spawn
+import actor
+
+fn produce_loop(target: Pid[String], lines: [String], i: Int)
+  : Unit / Actor[String] + Console
+= match lines {
+    [] -> {
+      Stdout.print("producer: send sentinel")
+      Actor.send(target, "")
+    }
+    [line, ...rest] -> {
+      Stdout.print("producer: send #" ++ int_to_string(i) ++ " " ++ line)
+      Actor.send(target, line)
+      produce_loop(target, rest, i + 1)
+    }
+  }
+
+fn consume_loop(i: Int) : Unit / Actor[String] + Console = {
+  let line = Actor.receive()
+  match line {
+    "" -> Stdout.print("consumer: end")
+    _  -> {
+      Stdout.print("consumer: got #" ++ int_to_string(i) ++
+                   " len=" ++ int_to_string(string_length(line)) ++
+                   " " ++ line)
+      consume_loop(i + 1)
+    }
+  }
+}
+
+fn run() : Unit / Actor[String] + Spawn + Console = {
+  let me = Actor.self()
+  let lines = ["alpha", "bravo", "charlie", "delta", "echo"]
+  let _ = fiber_spawn(() => produce_loop(me, lines, 1))
+  consume_loop(1)
+}
+
+fn main() : Int / Spawn + Console = {
+  with_mailbox_policy(Bounded(2, BlockSender)) { run() }
+  0
+}
