@@ -1,55 +1,26 @@
 # ahu Makefile.
 #
-# Wraps the kaikai compiler driver against the ahu sources.
-# `KAI_HOME` points at a kaikai checkout (defaults to the sibling
-# `lnds/kaikai` location used during development).
-# Override on the command line: `make tier1 KAI_HOME=/path/to/kaikai`.
+# Drives the `kai` frontend from the PATH against ahu fixtures. The
+# kaikai installation (compiler, stdlib, preludes, C linker) is
+# fully resolved by the `kai` wrapper itself — this Makefile only
+# does fixture discovery, fixture compilation, and tier1 diffing.
+# Portable across any machine with `kai` on the PATH; no dev
+# checkout of kaikai required.
+#
+# Self-import note: `kai.toml` declares `ahu = { path = "." }` as a
+# workaround for kaikai#567. Once that lands and `kai build`
+# treats the manifest directory as an implicit search path, the
+# self-dep can be dropped without changes to this file.
 
-KAI_HOME ?= ../kaikai
-KAIC2     = $(KAI_HOME)/stage2/kaic2
-STAGE0    = $(KAI_HOME)/stage0
-STDLIB    = $(KAI_HOME)/stdlib
+KAI ?= kai
 
-# Mirror bin/kai's full prelude chain so ahu fixtures see the
-# same canonical surface as upstream demos. When kaikai adds a
-# new top-level stdlib module, both bin/kai and this list need
-# the entry. The kaikai Makefile keeps an EXTRA_PRELUDE_FLAGS
-# block in stage2/Makefile for the same reason — there is no
-# way to ship "all preludes" without enumerating them today.
-PRELUDES  = $(addprefix --prelude ,$(wildcard $(STDLIB)/core/*.kai)) \
-            --prelude $(STDLIB)/protocols.kai \
-            --prelude $(STDLIB)/effects.kai \
-            --prelude $(STDLIB)/random.kai \
-            --prelude $(STDLIB)/encoding/base64.kai \
-            --prelude $(STDLIB)/encoding/hex.kai \
-            --prelude $(STDLIB)/encoding/json.kai \
-            --prelude $(STDLIB)/collections/map.kai \
-            --prelude $(STDLIB)/collections/set.kai \
-            --prelude $(STDLIB)/collections/queue.kai \
-            --prelude $(STDLIB)/collections/stack.kai \
-            --prelude $(STDLIB)/math/numeric.kai \
-            --prelude $(STDLIB)/math/int.kai \
-            --prelude $(STDLIB)/math/real.kai \
-            --prelude $(STDLIB)/decimal.kai \
-            --prelude $(STDLIB)/money.kai \
-            --prelude $(STDLIB)/uuid.kai \
-            --prelude $(STDLIB)/regexp.kai \
-            --prelude $(STDLIB)/path.kai
-
-# `--path` resolves dotted module imports. stdlib for `list.X`,
-# `string.X`, etc.; src/ for ahu's own modules.
-PATH_FLAGS = --path $(STDLIB) --path src
-
-CC       ?= cc
-CFLAGS   += -std=c99 -O0 -g -I $(STAGE0)
-
-BUILD     = build
+BUILD = build
 
 # Fixture discovery. Two layouts:
-#   tests/<name>.kai          → binary $(BUILD)/<name>,
-#                               expected tests/<name>.out.expected
-#   examples/<name>/main.kai  → binary $(BUILD)/<name>,
-#                               expected examples/<name>/main.out.expected
+#   tests/<name>.kai          -> binary $(BUILD)/<name>,
+#                                expected tests/<name>.out.expected
+#   examples/<name>/main.kai  -> binary $(BUILD)/<name>,
+#                                expected examples/<name>/main.out.expected
 TEST_KAI       = $(wildcard tests/*.kai)
 EXAMPLE_KAI    = $(wildcard examples/*/main.kai)
 
@@ -65,13 +36,15 @@ TEST_BINS      = $(addprefix $(BUILD)/,$(TEST_NAMES))
 EXAMPLE_BINS   = $(addprefix $(BUILD)/,$(EXAMPLE_NAMES))
 ALL_BINS       = $(TEST_BINS) $(EXAMPLE_BINS)
 
+AHU_SRC = $(wildcard ahu/*.kai)
+
 .PHONY: tier0 tier1 tier1-fixtures clean
 
 # Tier 0 — fast pre-commit sanity. Compiles every fixture; green
-# means the cell module typechecks and every fixture's source is
+# means the ahu modules typecheck and every fixture's source is
 # accepted by the kaikai typer.
 tier0: $(ALL_BINS)
-	@echo "tier0: cell module + $(words $(ALL_BINS)) fixtures compile."
+	@echo "tier0: ahu modules + $(words $(ALL_BINS)) fixtures compile."
 
 # Tier 1 — gated by CI. Tier 0 plus running each fixture and
 # diffing stdout against its .out.expected sibling.
@@ -103,16 +76,12 @@ tier1-fixtures: $(ALL_BINS)
 	done
 
 # Pattern rule for tests/ fixtures.
-AHU_SRC = $(wildcard src/*.kai) $(wildcard src/ahu/*.kai)
-
-$(BUILD)/%: tests/%.kai $(AHU_SRC) | $(BUILD)
-	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
-	$(CC) $(CFLAGS) $(BUILD)/$*.c -o $@
+$(BUILD)/%: tests/%.kai $(AHU_SRC) kai.toml | $(BUILD)
+	$(KAI) build $< -o $@
 
 # Pattern rule for examples/<name>/main.kai fixtures.
-$(BUILD)/%: examples/%/main.kai $(AHU_SRC) | $(BUILD)
-	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
-	$(CC) $(CFLAGS) $(BUILD)/$*.c -o $@
+$(BUILD)/%: examples/%/main.kai $(AHU_SRC) kai.toml | $(BUILD)
+	$(KAI) build $< -o $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

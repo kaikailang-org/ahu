@@ -3,7 +3,7 @@
 # An end-to-end data processing pipeline using kaikai stdlib's
 # core.list higher-order helpers + the [a..b] / | / |> language
 # sugars. ahu's Layer 1 contribution is convention + this kind
-# of fixture; there is no `src/ahu/stream.kai` because the
+# of fixture; there is no `ahu/stream.kai` because the
 # composition reads cleanly from the canonical kaikai surface.
 #
 # Pipeline stages:

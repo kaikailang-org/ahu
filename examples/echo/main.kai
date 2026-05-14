@@ -1,4 +1,5 @@
-# examples/echo/main.kai — ahu-Tongariki MVP integration demo.
+# examples/echo/main.kai — integration demo combining all ahu
+# layers.
 #
 # A TCP echo server that combines all four ahu layers + kaikai
 # stdlib primitives:
@@ -6,7 +7,8 @@
 #   Layer 1 — pipeline pattern: each connection's input/output
 #             is conceptually a stream; v1 uses an explicit
 #             tail-recursive loop because lazy/unbounded
-#             sources need post-Tongariki kaikai support.
+#             sources need upstream kaikai support that has not
+#             landed yet.
 #   Layer 2 — cells: per-session counter cell tracks frame
 #             count, prints summary on disconnect.
 #   Layer 3 — restart helpers: the listener loop is wrapped
@@ -34,7 +36,7 @@
 #   - 1024-byte recv buffer; longer payloads chunked across
 #     receive calls.
 #   - No graceful Ctrl-C handling. ahu's `run_app` is a v1
-#     placeholder (see `src/ahu/app.kai` header); Signal-based
+#     placeholder (see `ahu/app.kai` header); Signal-based
 #     shutdown that lets cell `Cancel` handlers run waits on
 #     the reactor. Today: SIGINT/SIGTERM kill the process
 #     abruptly.
@@ -51,7 +53,7 @@ type SessionMsg = FrameDone | EndSession
 # Per-session counter cell. Counts frames echoed; prints a
 # summary line and exits when the connection closes.
 fn session_step(count: Int, msg: SessionMsg)
-  : StepResult[Int] / Actor[SessionMsg] + Console
+  : StepResult[Int] / Actor[SessionMsg] + Console + NetTcp
 = match msg {
     FrameDone  -> cell.keep(count + 1)
     EndSession -> {
