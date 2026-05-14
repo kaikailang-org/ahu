@@ -278,7 +278,7 @@ The stdlib spelling stays canonical. Aliasing
 prefix ahu prefers without adding any expressive power.
 Convention is the cheaper fix: ahu code uses `list.*` directly
 plus the `[..]` / `|` / `|>` syntax. When lazy sources land,
-they get their own ahu module (`src/source.kai` or similar) —
+they get their own ahu module (`ahu/source.kai` or similar) —
 new surface, not aliases.
 
 ### Layer 2 — Cells
@@ -291,7 +291,7 @@ internal mutation); behaviour switches are encoded as a sum
 type for State (Active → Paused → Draining as variants).
 
 ```kai
-# In src/ahu/cell.kai (imported as `import ahu.cell`):
+# In ahu/cell.kai (imported as `import ahu.cell`):
 pub type StepResult[State] = Continue(State) | Done
 
 pub fn keep[State](s: State) : StepResult[State] = Continue(s)
@@ -403,7 +403,7 @@ helpers compose with nurseries — a nursery + N children + N
 restart wrappers **is** your supervision tree.
 
 ```kai
-# In src/ahu/restart.kai (imported as `import ahu.restart`):
+# In ahu/restart.kai (imported as `import ahu.restart`):
 pub type RestartPolicy = Permanent | Transient | Temporary
 pub type RestartLimit  = Limit(Int)               # intensity only in v1
 
@@ -699,7 +699,7 @@ ahu-Tongariki should absorb.
    `RestartLimit`, `with_restart`, `restartable_cell`.
    Default limit `5 / 60s`.
 4. **Bootstrap helper.** `app.run_app(root)` (in
-   `src/ahu/app.kai`, imported as `import ahu.app`) subscribes
+   `ahu/app.kai`, imported as `import ahu.app`) subscribes
    to `SIGINT` / `SIGTERM` via the kaikai `Signal` effect
    (`lnds/kaikai#107`, landed 0.36.x), spawns `root` as a child
    fiber, parks on `Signal.await()` until either signal fires,
@@ -750,7 +750,8 @@ ahu/
     design.md            # this document
     roadmap.md
     lane-experience-*.md
-  src/
+  kai.toml               # package manifest (name = "ahu")
+  ahu/                   # module root — `import ahu.X`
     stream.kai           # Layer 1
     cell.kai             # Layer 2
     restart.kai          # Layer 3

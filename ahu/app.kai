@@ -1,4 +1,4 @@
-# src/ahu/app.kai — ahu Tongariki bootstrap.
+# ahu/app.kai — ahu Tongariki bootstrap.
 # Imported by user code as `import ahu.app`; functions are
 # accessed dotted (`app.run_app(root)`).
 #

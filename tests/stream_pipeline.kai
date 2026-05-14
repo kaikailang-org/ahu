@@ -13,7 +13,7 @@
 #
 # ahu's contribution at Layer 1 is convention plus this fixture
 # demonstrating the canonical shape with effectful callbacks.
-# `src/stream.kai` does not exist — there is nothing for ahu to
+# `ahu/stream.kai` does not exist — there is nothing for ahu to
 # add at the eager-list-based level. Lazy/unbounded sources
 # (TCP listener, websocket frame generator, ticker) are
 # post-Tongariki work, gated on kaikai admitting row-poly type

@@ -37,8 +37,10 @@ PRELUDES  = $(addprefix --prelude ,$(wildcard $(STDLIB)/core/*.kai)) \
             --prelude $(STDLIB)/path.kai
 
 # `--path` resolves dotted module imports. stdlib for `list.X`,
-# `string.X`, etc.; src/ for ahu's own modules.
-PATH_FLAGS = --path $(STDLIB) --path src
+# `string.X`, etc.; repo root for ahu's own modules (`ahu/cell.kai`
+# resolves the `import ahu.cell` form used by fixtures and downstream
+# consumers via `kai add github.com/kaikailang-org/ahu`).
+PATH_FLAGS = --path $(STDLIB) --path .
 
 CC       ?= cc
 CFLAGS   += -std=c99 -O0 -g -I $(STAGE0)
@@ -103,7 +105,7 @@ tier1-fixtures: $(ALL_BINS)
 	done
 
 # Pattern rule for tests/ fixtures.
-AHU_SRC = $(wildcard src/*.kai) $(wildcard src/ahu/*.kai)
+AHU_SRC = $(wildcard ahu/*.kai)
 
 $(BUILD)/%: tests/%.kai $(AHU_SRC) | $(BUILD)
 	$(KAIC2) $(PATH_FLAGS) $(PRELUDES) $< > $(BUILD)/$*.c
