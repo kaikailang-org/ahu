@@ -50,9 +50,8 @@ open in another window. The full text lives upstream in
    are the three shapes for stream-based data flow. `with_restart`
    / `restartable_cell` are the only two restart-policy helpers.
    No alternate framings (no `Agent`, no `Task`, no
-   `GenStateMachine`, no `Supervisor` type) in ahu-Tongariki —
-   the canonical surface stays small until usage data motivates
-   additions.
+   `GenStateMachine`, no `Supervisor` type) — the canonical
+   surface stays small until usage data motivates additions.
 5. **Approachable core, novel where it pays off.** Reactive-streams
    veterans recognise `Source`/`Flow`/`Sink` immediately;
    Akka-Typed users recognise the recursive-function cell shape.
@@ -71,7 +70,7 @@ open in another window. The full text lives upstream in
    and structurally repetitive (recursive-function cells, algebraic
    stream combinators, two restart helpers). The structured form
    makes completion-by-template a viable LLM workflow once
-   `kai lsp` ships in `kaikai-Anga Roa`.
+   `kai lsp` ships upstream.
 
 ### Tie-breakers
 
@@ -109,23 +108,22 @@ without being told:
   commit. The integrator decides the version number after seeing
   what parallel lanes already took.
 
-## Testing tiers (when implementation lands)
+## Testing tiers
 
-ahu-Tongariki shipped the first implementation; the test runner is
-the repo `Makefile` driving the kaikai compiler. Tiers:
+The test runner is the repo `Makefile` driving `kai build` against
+fixtures in `tests/` and `examples/`. Tiers:
 
-- **Tier 0 — pre-commit fast sanity (~30–60s).** ahu unit tests over
-  the kaikai test runner.
-- **Tier 1 — gated by CI on every PR.** Tier 0 plus integration tests
-  that boot a small supervision tree and verify lifecycle behaviour
-  (start, restart, shutdown).
-- **Tier 2 — `make daily`.** Tier 1 plus stress fixtures: large
-  supervision trees, mailbox saturation under `BlockSender`, link
-  cascades.
+- **Tier 0 — pre-commit fast sanity.** Compile every fixture.
+  Green means the ahu modules typecheck and every fixture's source
+  is accepted by the kaikai compiler.
+- **Tier 1 — gated by CI on every PR.** Tier 0 plus running each
+  fixture and diffing stdout against its `.out.expected` sibling.
+- **Tier 2 — `make daily` (placeholder).** Reserved for stress
+  fixtures: large supervision trees, mailbox saturation under
+  `BlockSender`, link cascades. Lands when one of those scenarios
+  becomes load-bearing.
 
-The exact Make targets get pinned in the `ahu-Tongariki` implementation
-lane. Until then this section is a forward-looking placeholder, not a
-gate.
+Run targets locally with `make tier0` / `make tier1`.
 
 ## Things to avoid
 
@@ -141,10 +139,10 @@ gate.
   table" or "add a `Strategy` enum", stop and re-read
   `docs/design.md` §*Why ahu is not OTP*. The patterns OTP got
   right are kept in shape; the OTP-specific machinery is not.
-- **Do not introduce alternate cell shapes** in ahu-Tongariki.
-  No `Agent`, no `Task`, no `GenStateMachine`. One cell shape,
-  one stream shape, two restart helpers. Specialised forms come
-  post-Tongariki with usage data, never pre-emptively.
+- **Do not introduce alternate cell shapes.** No `Agent`, no
+  `Task`, no `GenStateMachine`. One cell shape, one stream shape,
+  two restart helpers. Specialised forms land only with usage
+  data, never pre-emptively.
 - **Do not introduce a `Supervisor` type.** Supervision falls out
   of nursery placement plus restart helpers. See
   `docs/design.md` §*Decision 3*. If a use case really needs more
@@ -154,16 +152,15 @@ gate.
   any other ambient state**. The kaikai region-brand on
   `Pid[Msg]` is load-bearing for safety. Designs that want to
   share Pids across unrelated nurseries must go through an
-  explicit handoff or, post-Tongariki, a per-nursery `Registry`
-  capability — see `docs/design.md` §*Decision 4*.
+  explicit handoff or a per-nursery `Registry` capability —
+  see `docs/design.md` §*Decision 4*.
 - **Do not design for hot code reload.** Kaikai compiles to native
   binaries via LLVM; versioned module loading is incompatible
   with the runtime model. See `docs/design.md` §*Decision 5*.
-- **Do not design for distribution** in ahu-Tongariki or
-  ahu-Anga Roa. Cross-node Pids land at the earliest in ahu-Orongo
-  and depend on a serialisation protocol that is not yet
-  specified.
-- **Do not design against post-MVP targets** (Windows, WASM,
+- **Do not design for distribution.** Cross-node Pids are
+  far-future work (see `docs/roadmap.md` §*Distribution*) and
+  depend on a serialisation protocol that is not yet specified.
+- **Do not design against unsupported targets** (Windows, WASM,
   multi-thread scheduler) but do not invest effort in them either.
 
 ## Repository layout
@@ -198,5 +195,8 @@ and downstream code.
 ## Current state
 
 `docs/design.md` pins the design. `docs/roadmap.md` pins the
-milestone series. ahu-Tongariki shipped 2026-05-02 (see
-`docs/lane-experience-ahu-tongariki-mvp-close.md`).
+component states. There are no milestones — components advance
+independently and the repository version stays `0.0.1`. Past
+implementation cycles are captured in
+`docs/lane-experience-*.md` as timestamped retrospectives; those
+files are historical record and are not rewritten.

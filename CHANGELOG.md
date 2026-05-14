@@ -8,6 +8,22 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **Roadmap model: components, not milestones.** `docs/roadmap.md`
+  rewritten from the Tongariki / Anga Roa / Orongo / Anakena
+  milestone series to a per-component layout (cells, restart,
+  streams, registry, distribution, logging, config, diagnostics,
+  reference applications, cross-platform). Each component carries
+  one of four states (idea / designed / shipped / blocked), a
+  list of possible follow-ups with no commitment, and its
+  upstream dependencies. No definitions-of-done, no calendars, no
+  milestone names. Repository version stays `0.0.1` indefinitely.
+  README.md status block, design.md status and decision text, and
+  CLAUDE.md tier-1 closure / "things to avoid" / "current state"
+  sections updated to match. Source comments in `ahu/app.kai`,
+  `ahu/cell.kai`, `tests/stream_pipeline.kai`, `examples/echo/`,
+  and `examples/counter/` stripped of milestone references.
+  `CHANGELOG.md` and `docs/lane-experience-*.md` are historical
+  record and intentionally not rewritten.
 - **Repository layout for kaikai package consumption.** ahu is now
   a kaikai package: `kai.toml` lives at the repo root and module
   sources moved from `src/ahu/*.kai` to top-level `ahu/*.kai`.

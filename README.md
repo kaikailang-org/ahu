@@ -19,28 +19,29 @@ rationale.
 
 ## Status
 
-**ahu-Tongariki MVP shipped (2026-05-02).** Layers 1–4 +
-`restartable_cell` + reference demos. tier1 green at 13
-fixtures against kaikai 0.36.x. Retrospective at
-`docs/lane-experience-ahu-tongariki-mvp-close.md`.
+Component states. Detail per component lives in
+`docs/roadmap.md`. ahu organises its surface by component;
+there are no milestones.
 
 ```
-Layer 1 — Streams              ✓ kaikai stdlib + language sugars
-Layer 2 — Cells                ✓ ahu/cell.kai
-Layer 3 — Restart helpers      ✓ ahu/restart.kai
-restartable_cell               ✓ ahu/restart.kai
-run_app bootstrap              ✓ ahu/app.kai (v1 placeholder)
+Layer 1 — Streams              designed (kaikai stdlib + sugars)
+Layer 2 — Cells                shipped  (ahu/cell.kai)
+Layer 3 — Restart helpers      shipped  (ahu/restart.kai)
+restartable_cell               shipped  (ahu/restart.kai)
+run_app bootstrap              shipped  (ahu/app.kai — v1 placeholder)
 
-Demos:
+Reference applications:
   examples/counter/            request/reply counter (Layer 2)
-  examples/echo/               TCP echo (all four layers + NetTcp)
+  examples/echo/               TCP echo (all three layers + NetTcp)
   examples/pipeline/           ETL with effects (Layer 1)
   examples/resilient_counter/  restart fault tolerance (Layer 3)
 ```
 
-The next milestone is **ahu-Anga Roa** — process registry,
-Cell.ask helper, specialised behaviours, stream extensions,
-diagnostic surface. See `docs/roadmap.md`.
+Tier0 (compile-only) is green against kaikai 0.56.x at 13
+fixtures. Tier1 (run-and-diff) is currently red because of a
+runtime regression in `spawn_actor` upstream — see
+`docs/known-regressions.md`. The repository version stays
+`0.0.1` indefinitely.
 
 ## Position in the ecosystem
 
@@ -58,10 +59,10 @@ henua       (DDD building blocks)
 manutara    (web framework)
 ```
 
-Each project has its own repository, its own
-`docs/roadmap.md`, and its own
-`Tongariki / Anga Roa / Orongo / Anakena` series. See
-`kaikai/docs/roadmap.md` for the meta-roadmap.
+Each project has its own repository and its own
+`docs/roadmap.md`. The other projects in the stack track
+their own milestone conventions; ahu does not — see
+`docs/roadmap.md` §*What this doc is NOT*.
 
 ## Using ahu as a dependency
 
@@ -150,44 +151,35 @@ Full runnable demos live under `examples/`.
 ## CI
 
 Tier 1 runs on every PR and on every push to `main` via
-`.github/workflows/tier1.yml`. The workflow checks out a
-fresh copy of `lnds/kaikai` (HEAD of `main` by default;
-override via the `kaikai_ref` workflow input), bootstraps
-stages 0/1/2, then runs `make tier1` against ahu's fixtures
-(every `tests/*.kai` and `examples/*/main.kai` plus its
-`.out.expected` sibling).
+`.github/workflows/tier1.yml`. The workflow installs `kai`
+from the kaikai release artefacts and runs `make tier1`
+against ahu's fixtures (every `tests/*.kai` and
+`examples/*/main.kai` plus its `.out.expected` sibling).
 
-While `lnds/kaikai` remains private, the workflow needs a
-PAT with `repo:read` scope on `lnds/kaikai` configured as
-the repository secret `KAIKAI_REPO_TOKEN`. Once kaikai
-goes public, the `token:` line in the workflow can be
-removed and the secret retired.
-
-Locally, `make tier1` does the same fixture loop. `KAI_HOME`
-defaults to `../kaikai` for the sibling-checkout development
-flow:
+Locally, install `kai` (e.g. via Homebrew —
+`brew install kaikailang-org/kaikai/kaikai`) and run:
 
 ```sh
-git clone github.com/lnds/kaikai     # ../kaikai
-git clone github.com/lnds/ahu        # ./ahu
-cd kaikai && make all                # bootstrap stages 0/1/2
-cd ../ahu && make tier1
+git clone github.com/kaikailang-org/ahu
+cd ahu
+make tier1
 ```
+
+The Makefile uses `kai` from `PATH`; no kaikai dev checkout
+is required.
 
 ## Documentation
 
-- **`docs/design.md`** — surface, decisions, MVP scope,
-  external dependencies on kaikai, not-goals, references.
-- **`docs/roadmap.md`** — milestones (Tongariki / Anga Roa
-  / Orongo / Anakena), per-milestone scope and
-  definition-of-done.
-- **`docs/lane-experience-ahu-tongariki-cells-restart.md`**
-  — retrospective for the cells + restart implementation
-  (PRs #2, #3).
-- **`docs/lane-experience-ahu-tongariki-mvp-close.md`** —
-  retrospective for the full MVP arc (PRs #5–#10),
-  upstream coordination summary, what worked / what did
-  not.
+- **`docs/design.md`** — surface, decisions, external
+  dependencies on kaikai, not-goals, references.
+- **`docs/roadmap.md`** — components and their state; the
+  shape ahu uses instead of milestones.
+- **`docs/known-regressions.md`** — open issues outside this
+  repository that block or constrain ahu against the
+  current kaikai release.
+- **`docs/lane-experience-*.md`** — historical
+  retrospectives. Timestamped record of how earlier
+  iterations happened. Not rewritten.
 
 ## Documentation language
 
