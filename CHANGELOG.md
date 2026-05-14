@@ -8,6 +8,14 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **`examples/counter/main.kai` migrated to `cell.ask`.** The
+  driver no longer threads `Actor.self()` and a manual
+  `Actor.receive` to coordinate the GetValue round-trip; one
+  `cell.ask(counter, (me) => GetValue(me))` replaces the four
+  lines. Same `.out.expected`, same protocol, fewer moving
+  parts. Validates the helper at the canonical reference site
+  that motivated shipping it.
+
 - **Drop `KAI_BACKEND=c` pin — kaikai 0.59 closes the LLVM
   regression arc.** kaikai 0.58 fixed kaikai#582's minimal
   Cancel-raise repro; kaikai 0.59 fixed the residue (Link/Monitor
@@ -26,7 +34,6 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   from "green under the C backend" to "green under both
   backends"; upstream-dependencies summary collapsed to a one-
   paragraph no-blockers statement.
-
 - **Upstream-tracking refresh against kaikai 0.56.6.** kaikai#570
   is mostly fixed in 0.56.6 — under LLVM, cells, streams,
   `cell.ask`, plain mailboxes, and `ahu.log` all run identically
