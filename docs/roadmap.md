@@ -84,11 +84,11 @@ row variable per row, and it must be the last item.
 limit `5 / 60s`. Spec: `docs/design.md` §*Layer 3*.
 
 Tier1 fixtures exercise the three policies under crash and
-escalation conditions. Currently **red against kaikai 0.56.x**
-because of a runtime regression in `spawn_actor`
-(`kaikai#570`) — every fixture that touches an actor primitive
-crashes on entry. Tier0 (compile-only) is green. See
-`docs/known-regressions.md`.
+escalation conditions. Currently **green under the C backend**
+on kaikai 0.56.4. The LLVM backend regression in `spawn_actor`
+(`kaikai#570`) still crashes every actor-touching fixture, so
+the `Makefile` pins `KAI_BACKEND=c` until the LLVM path is
+fixed upstream. See `docs/known-regressions.md`.
 
 ### Bootstrap (state: **shipped**, ahu/app.kai)
 
@@ -187,16 +187,17 @@ over it.
 ## Upstream dependencies — current open items
 
 Live tracking lives in `docs/known-regressions.md`. Summary
-of what currently blocks ahu against kaikai 0.56.x:
+of what currently blocks ahu against kaikai 0.56.4:
 
-- **`kaikai#570`** — `spawn_actor` runtime segfault. Blocks
-  tier1: 12 of 13 fixtures crash on entry. Hard block on any
-  component that uses actor primitives.
-- **`kaikai#567`** — `kai build` cannot resolve a package's own
-  modules from sibling dirs. Worked around with
-  `ahu = { path = "." }` in `kai.toml`; remove when fixed.
+- **`kaikai#570`** — `spawn_actor` runtime segfault under the
+  LLVM backend. Worked around by pinning the C backend in the
+  `Makefile` (`KAI_BACKEND ?= c`); tier1 passes. Drop the pin
+  once LLVM lowering is fixed upstream.
+- **`kaikai#567`** — fixed upstream. Self-dep workaround
+  removed from `kai.toml`; tier0 stays green without it.
 - **`kaikai#571`** — LLVM backend "lambda info missing"
-  diagnostic on nested lambdas with `with_mailbox`. Cosmetic.
+  diagnostic on nested lambdas with `with_mailbox`. Moot
+  while the backend is pinned to C.
 
 ## Optimisation themes (no ordering)
 
