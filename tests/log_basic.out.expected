@@ -1,0 +1,4 @@
+INFO user login user=alice attempts=3 ok=true
+DEBUG ping
+WARN slow query ms=1200
+ERROR upstream down host=db-01
