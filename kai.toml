@@ -2,10 +2,3 @@ name = "ahu"
 version = "0.0.1"
 
 [dependencies]
-# Self-dependency workaround for kaikai#567: `kai build` does not
-# treat the manifest directory as a search path when compiling
-# files inside the package itself, so `examples/*/main.kai` and
-# `tests/*.kai` cannot resolve `import ahu.cell` without this
-# explicit self-reference. Remove once kaikai#567 lands and
-# `kai build` adds `--path <manifest_dir>` automatically.
-ahu = { path = "." }

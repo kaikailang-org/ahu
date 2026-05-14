@@ -6,8 +6,56 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **`cell.ask` — synchronous request/reply helper over the cell
+  mailbox.** Promotes the listed Layer 2 follow-up to shipped:
+  `ask(cell_pid, build_request) : Msg / Actor[Msg] + e` automates
+  the canonical `Actor.self → Actor.send → Actor.receive`
+  triplet that every cell-using fixture currently writes by hand
+  (see `tests/cell_state_record.kai` for the pre-existing
+  pattern). The reply payload must be a variant of the cell's
+  `Msg` union — kaikai's `Actor.send : Pid[T] -> T` ties the
+  destination pid type to the active handler's `Msg`, so a typed
+  reply-channel distinct from the per-fiber mailbox is upstream
+  scope, not user-level. Documented at the call site, fixture
+  `tests/cell_ask.kai`. Tier1 grows from 14 to 15 fixtures.
+
+- **`ahu/log.kai` — structured-fields wrapper over the stdlib `Log`
+  effect.** Promotes the Logging component from "idea" to "shipped"
+  in `docs/roadmap.md`. Surface: `LogLevel = Debug | Info | Warn |
+  Error`; `Field = StringField | IntField | BoolField` (closed sum,
+  avoids a heterogeneous Map); `log.{debug,info,warn,error}_kv(msg,
+  fields) : Unit / Log` formatting fields as `k=v` pairs and
+  forwarding to the matching `Log` op; pure helpers `format_field`,
+  `format_fields`, `format_event` for callers that render outside
+  the `Log` effect. The implementation is a pure-formatting wrapper
+  — no new effect, no handler combinators that re-emit `Log` — so
+  the row stays `Log` and a user-installed `Log` handler observes
+  the same already-formatted string the stdlib default handler
+  would print. v1 deferrals (level-filter handler combinator, async
+  fan-out to `fs.file`, timestamps via `Clock`, trace context,
+  redaction, rotation) are documented in the module header with
+  the upstream gaps that block each one. Tier1 grows from 13 to
+  14 fixtures with `tests/log_basic.kai`.
+
 ### Changed
 
+- **Upstream tracking refresh against kaikai 0.56.4.** kaikai#567
+  landed: `kai build` now treats the manifest directory as an
+  implicit search path, so the `ahu = { path = "." }` self-dep was
+  removed from `kai.toml` (the Makefile note that described the
+  workaround is gone too). kaikai#570 is now classified as
+  LLVM-backend-only — the C backend produces working binaries for
+  all 13 fixtures, while the LLVM backend still segfaults inside
+  `spawn_actor`. The Makefile exports `KAI_BACKEND ?= c` so
+  `make tier1` passes out of the box; drop the pin once kaikai#570
+  lands upstream. `docs/known-regressions.md` snapshot rewritten
+  accordingly (kaikai#567 closed, kaikai#570 reclassified, the
+  workaround list now references the backend pin instead of the
+  self-dep). `docs/roadmap.md` restart-component status flipped
+  from "red against 0.56.x" to "green under the C backend"; the
+  upstream-dependency summary at the bottom restated.
 - **Roadmap model: components, not milestones.** `docs/roadmap.md`
   rewritten from the Tongariki / Anga Roa / Orongo / Anakena
   milestone series to a per-component layout (cells, restart,

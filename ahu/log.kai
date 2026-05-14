@@ -1,0 +1,141 @@
+# ahu/log.kai — structured wrapper over `stdlib/log.kai`.
+# Imported by user code as `import ahu.log`; functions are accessed
+# dotted (`log.info_kv("msg", fields)`); types stay bare
+# (`LogLevel`, `Field`).
+#
+# The stdlib `log.kai` ships a four-level effect (`Log.debug` /
+# `info` / `warn` / `error`) over plain `String` messages. The
+# stdlib header itself points at this module as the place for
+# *structured key/value events, level filtering, and async fan-out
+# to multiple sinks*. ahu Layer 4 closes the structured-fields
+# half of that promise; the other two are deferred (see "v1
+# scope" below).
+#
+# Surface (v1):
+#
+#   - LogLevel = Debug | Info | Warn | Error
+#   - Field    = StringField(String, String)
+#              | IntField(String, Int)
+#              | BoolField(String, Bool)
+#   - log.debug_kv(msg, fields) : Unit / Log
+#   - log.info_kv(msg, fields)  : Unit / Log
+#   - log.warn_kv(msg, fields)  : Unit / Log
+#   - log.error_kv(msg, fields) : Unit / Log
+#   - log.format_fields(fields) : String   (pure)
+#   - log.format_event(level, msg, fields) : String  (pure)
+#
+# The `*_kv` wrappers format the fields as `k=v` pairs space-
+# separated after the message and forward to the matching stdlib
+# `Log` op. Default rendering (against the stdlib default `Log`
+# handler) is therefore:
+#
+#   [2026-05-13T03:14:15Z] INFO  user login user=alice attempts=3 ok=true
+#
+# A user-installed `Log` handler observes the same already-formatted
+# string. That keeps this module a *pure-formatting wrapper* — no
+# new effect, no handler combinators that re-emit `Log`. A handler
+# that wants to recover the original key/value structure can parse
+# the logfmt-like trailer; lossless structured routing is a follow-
+# up (see "Deferred" below).
+#
+# Closed sum type for `Field`. Keeping the value variants enumerated
+# (string / int / bool) avoids a `Map[String, Value]` of heterogeneous
+# values — the kaikai typer would force a single concrete value type,
+# and a sum is exactly that "single type with three shapes". Adding
+# a new variant (e.g. `FloatField`) is a one-line ext that callers
+# pick up after a recompile; not a stable-API concern at v0.0.1.
+#
+# v1 scope — what ships now:
+#   - structured fields formatted as logfmt-like (`k=v` pairs).
+#   - the four levels delegate to the stdlib `Log` op of the same
+#     name; the row therefore stays `Log` and nothing else.
+#   - pure helpers (`format_fields`, `format_event`) usable from
+#     callers that want to render outside the `Log` effect.
+#
+# Deferred — explicitly *not* in v1:
+#   - **Level filtering as a handler combinator** (`with_min_level`).
+#     The natural shape is a `Log` handler that compares the op's
+#     level to a threshold and either drops or re-emits via `Log.X`,
+#     but re-emitting from within a `Log` handler routes back into
+#     the same handler (infinite loop). A clean implementation needs
+#     either a separate `StructuredLog` effect parallel to `Log`
+#     (so the handler can safely delegate down a different channel),
+#     or a kaikai handler primitive for "delegate to outer handler"
+#     that has not been designed upstream. Filtering today belongs
+#     in the user's own `Log` handler, where the upstream/downstream
+#     boundary is unambiguous.
+#   - **Async fan-out to multiple sinks** (stderr + `fs.file`). The
+#     `fs.file.append` API is sync today; a useful async fan-out
+#     needs the kaikai m8.x reactor for non-blocking file writes
+#     and timer-driven flushes. Sync fan-out is straightforward to
+#     write at the user's `Log` handler (one `Log` op fans out to
+#     two prints); ahu does not need to wrap that.
+#   - **Timestamps via `Clock`**. The stdlib default `Log` handler
+#     already prefixes ISO 8601 UTC timestamps; user handlers that
+#     want their own format can call `time.now()` directly. ahu
+#     does not double-stamp.
+#   - **Trace context propagation**, **redaction**, **rotation**,
+#     **colour codes** — out of scope at this layer.
+
+# ---- types ----
+
+pub type LogLevel = Debug | Info | Warn | Error
+
+pub type Field
+  = StringField(String, String)
+  | IntField(String, Int)
+  | BoolField(String, Bool)
+
+# ---- pure formatters ----
+
+# Render one field as `k=v`. String values are NOT quoted; this
+# stays close to logfmt and trusts the caller not to embed
+# whitespace or `=` in keys. Quoting is a v2 concern once a
+# concrete consumer needs it.
+pub fn format_field(f: Field) : String = match f {
+  StringField(k, v) -> k ++ "=" ++ v
+  IntField(k, v)    -> k ++ "=" ++ int_to_string(v)
+  BoolField(k, v)   -> k ++ "=" ++ (if v { "true" } else { "false" })
+}
+
+# Join formatted fields with single spaces. Empty list yields the
+# empty string (no leading/trailing space) so `format_event` can
+# concatenate without conditional padding.
+pub fn format_fields(fields: [Field]) : String = match fields {
+  []        -> ""
+  [f]       -> format_field(f)
+  [f, ...t] -> format_field(f) ++ " " ++ format_fields(t)
+}
+
+# Compose the level tag, message, and fields into one logfmt-like
+# line. Used internally by the `*_kv` wrappers; exposed for callers
+# that want to render outside the `Log` effect (e.g. into a file,
+# into a captured buffer for tests). The level itself is left out
+# of the rendered string — the stdlib `Log` op carries the level
+# already, and emitting it twice would clutter the default
+# handler's output.
+pub fn format_event(msg: String, fields: [Field]) : String =
+  match fields {
+    [] -> msg
+    _  -> msg ++ " " ++ format_fields(fields)
+  }
+
+# ---- structured emission (one per level) ----
+
+# Forwarders call the stdlib `Log` ops directly via `Log.debug` /
+# `Log.info` / etc. The `log.{debug,info,warn,error}` flat names
+# from `stdlib/log.kai` would also work, but `import log` from
+# inside this module collides with this module's own `log` prefix
+# (both end up as `log` in the dotted-call resolver). Going
+# straight through the effect avoids that name clash.
+pub fn debug_kv(msg: String, fields: [Field]) : Unit / Log =
+  Log.debug(format_event(msg, fields))
+
+pub fn info_kv(msg: String, fields: [Field]) : Unit / Log =
+  Log.info(format_event(msg, fields))
+
+pub fn warn_kv(msg: String, fields: [Field]) : Unit / Log =
+  Log.warn(format_event(msg, fields))
+
+pub fn error_kv(msg: String, fields: [Field]) : Unit / Log =
+  Log.error(format_event(msg, fields))

@@ -6,46 +6,47 @@ This file is the documented landing pad mandated by `CLAUDE.md`
 upstream issues inline; they record them here and leave the fix
 to a dedicated upstream PR.
 
-Status snapshot (2026-05-13, against kaikai 0.56.1):
+Status snapshot (2026-05-13, against kaikai 0.56.4):
 
 | Issue | Layer | Status | Blocks |
 |---|---|---|---|
 | [kaikai#565](https://github.com/lnds/kaikai/issues/565) — privacy check leaks across module boundary | typer | **fixed in 0.56.1** | unblocks `import ahu.cell` from downstream consumers |
-| [kaikai#567](https://github.com/lnds/kaikai/issues/567) — `kai build` cannot resolve a package's own modules from sibling dirs | frontend wrapper | open | tier0 (worked around via self-dep in `kai.toml`) |
-| [kaikai#570](https://github.com/lnds/kaikai/issues/570) — `spawn_actor` segfaults at runtime | runtime / codegen | open | tier1 (12 of 13 fixtures crash on entry) |
-| [kaikai#571](https://github.com/lnds/kaikai/issues/571) — LLVM backend emits "lambda info missing" for nested lambdas with `with_mailbox` | LLVM backend | open | cosmetic — binaries are produced, semantics unverified |
+| [kaikai#567](https://github.com/lnds/kaikai/issues/567) — `kai build` cannot resolve a package's own modules from sibling dirs | frontend wrapper | **fixed in 0.56.x** | self-dep workaround dropped from `kai.toml` |
+| [kaikai#570](https://github.com/lnds/kaikai/issues/570) — `spawn_actor` segfaults at runtime under the LLVM backend | LLVM backend | open | tier1 under LLVM (12 of 13 fixtures crash on entry); worked around by pinning backend to C |
+| [kaikai#571](https://github.com/lnds/kaikai/issues/571) — LLVM backend emits "lambda info missing" for nested lambdas with `with_mailbox` | LLVM backend | open | cosmetic — moot while backend is pinned to C |
 
-## kaikai#567 — `kai build` needs a self-dep workaround for in-package fixtures
+## kaikai#567 — fixed
 
-`kai build examples/<name>/main.kai` from inside ahu fails with
-`cannot open module 'ahu.cell' (tried examples/<name>/ahu/cell.kai)`
-unless `kai.toml` declares `ahu = { path = "." }` as a dependency.
-The wrapper only emits `--path` flags for declared dependencies and
-never adds the manifest directory itself as a search path, so the
-package cannot compile its own examples or tests through `kai build`
-without the self-reference.
+`kai build` now treats the manifest directory as an implicit search
+path, so `import ahu.cell` resolves from `tests/*.kai` and
+`examples/*/main.kai` without a self-dep. The
+`ahu = { path = "." }` workaround was removed from `kai.toml`.
+Tier0 stays green without it under kaikai 0.56.4.
 
-The current `kai.toml` carries the workaround with a comment that
-points at this issue. Remove the self-dep once the wrapper is
-patched.
-
-## kaikai#570 — runtime segfault in `spawn_actor`
+## kaikai#570 — runtime segfault in `spawn_actor` (LLVM backend only)
 
 Every fixture that calls `spawn_actor` (directly or transitively
 via `cell.with_cell` → `spawn_actor`) crashes immediately with
-`EXC_BAD_ACCESS` inside `kai_actor__spawn_actor`. The backtrace
-points at the first dereference of the closure argument after entry
-to the function — `x0` is null. The 18-line standalone reproducer in
-the upstream issue does not touch ahu at all.
+`EXC_BAD_ACCESS` inside `kai_actor__spawn_actor` **when the binary
+is produced by the LLVM backend**. The backtrace points at the first
+dereference of the closure argument after entry to the function —
+`x0` is null. The 18-line standalone reproducer in the upstream
+issue does not touch ahu at all.
 
-Effect on tier1: 12 of 13 fixtures crash on entry. The single
-fixture that runs is `examples/pipeline/`, which uses no actor
-primitives (pure `list.*` pipeline over a range literal). Tier0
-(compile-only) is green at 13 fixtures.
+The C backend (`KAI_BACKEND=c` or `kai build --backend=c`) produces
+working binaries for all 13 fixtures. The bug is therefore localised
+to LLVM codegen — most likely closure-argument lowering on the
+`spawn_actor` call site — not to the kaikai runtime.
 
-Until kaikai patches the spawn path, tier1 against 0.56.x is a
-hard fail for ahu and any downstream library that relies on
-typed-actor patterns.
+**Workaround active in this repository**: `Makefile` exports
+`KAI_BACKEND ?= c`, so `make tier0` and `make tier1` pass against
+kaikai 0.56.4 without manual intervention. Drop the export once
+upstream lands a fix on the LLVM side.
+
+Effect on tier1 under LLVM: 12 of 13 fixtures crash on entry. The
+single fixture that runs is `examples/pipeline/`, which uses no
+actor primitives (pure `list.*` pipeline over a range literal).
+Tier0 (compile-only) is green at 13 fixtures regardless of backend.
 
 ## kaikai#571 — LLVM backend lambda-info diagnostic
 
@@ -64,8 +65,9 @@ absence of whatever metadata the diagnostic complains about. The
 
 ## Workarounds applied in this repository
 
-- **`kai.toml` self-dep**: pinned for kaikai#567; comment in
-  `kai.toml` points at the issue.
+- **`Makefile` exports `KAI_BACKEND ?= c`**: pinned for kaikai#570;
+  forces every fixture to be built with the C backend so tier1
+  passes against kaikai 0.56.4. Drop once kaikai#570 lands.
 - **`examples/echo/main.kai` row alignment**: the echo example's
   `session_step` had effect row `Actor[SessionMsg] + Console`, but
   the body passed to `cell.with_cell` runs under

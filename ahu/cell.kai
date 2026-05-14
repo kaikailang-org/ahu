@@ -85,6 +85,50 @@ pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 # wants to send to the cell (or receive replies from it through
 # the same mailbox). The caller typically establishes that with
 # an outer `with_mailbox` whose Msg type matches the cell's.
+# Synchronous request/reply over the standard `with_mailbox` shape.
+# The caller sits in `Actor[Msg]` (the same Msg type the cell
+# mailbox carries), builds a request that embeds its own `Pid[Msg]`
+# as the reply target, sends it to the cell, and parks on its own
+# `Actor.receive()` until something lands.
+#
+# Why the request and reply share the `Msg` type: kaikai's
+# `Actor.send : Pid[T] -> T` ties the destination pid type to the
+# active handler's Msg, so a caller installed under `with_mailbox[Reply]`
+# cannot `Actor.send(cell_pid, request)` against a `Pid[Msg]` cell
+# unless `Reply ≡ Msg`. The canonical workaround is the existing
+# pattern (the `cell_state_record.kai` fixture is the canonical
+# example): make the reply a variant of the cell's `Msg` union, so
+# both directions live on the same mailbox type. `ask` automates
+# that pattern; it does not lift the constraint.
+#
+# What the caller writes:
+#
+#   let s = cell.ask(stats_pid, (me) => GetState(me))
+#   match s {
+#     StateReply(record) -> ...
+#     other              -> ... # discrimination is the caller's job
+#   }
+#
+# The discriminator stays in the caller because `Actor.receive()`
+# returns *any* `Msg`, including stray messages that arrived
+# between the send and the reply. Callers that need stricter
+# guarantees (e.g. correlation IDs, drop-on-mismatch) layer those
+# on top — they are not v1 concerns.
+#
+# Cross-mailbox request/reply with separate Msg/Reply types is a
+# follow-up that depends on kaikai exposing a typed "reply
+# channel" primitive distinct from the per-fiber mailbox. The
+# `Pid[Msg]` typing of `Actor.send` makes this not implementable
+# at user-level today.
+pub fn ask[Msg, e](
+  cell_pid:      Pid[Msg],
+  build_request: (Pid[Msg]) -> Msg
+) : Msg / Actor[Msg] + e = {
+  let me = Actor.self()
+  Actor.send(cell_pid, build_request(me))
+  Actor.receive()
+}
+
 pub fn with_cell[State, Msg, R, e](
   initial: State,
   step:    (State, Msg) -> StepResult[State] / e,

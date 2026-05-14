@@ -52,7 +52,7 @@ none is planned for eager pipelines — see `docs/design.md`
 
 ### Layer 2 — Cells (state: **shipped**, ahu/cell.kai)
 
-`StepResult[State]`, `keep`, `cell_done`, `with_cell`.
+`StepResult[State]`, `keep`, `cell_done`, `with_cell`, `ask`.
 A cell is a fiber + typed mailbox + recursive step function;
 the user writes `(State, Msg) -> StepResult[State] / e` and
 ahu drives it. Spec: `docs/design.md` §*Layer 2*.
@@ -66,11 +66,12 @@ row variable per row, and it must be the last item.
 
 **Possible follow-ups**:
 
-- **`cell.ask` helper** — synchronous request/reply over the
-  `with_mailbox` shape. Adds a function, not a new
-  abstraction. Worth shipping if usage data shows the
-  request/reply pattern is common enough that hand-rolling it
-  per cell becomes noise.
+- **Cross-mailbox request/reply** — `ask` today requires the
+  reply to be a variant of the cell's own `Msg` union, because
+  kaikai's `Actor.send : Pid[T] -> T` ties the destination pid
+  type to the active handler's Msg. A typed reply-channel
+  primitive distinct from the per-fiber mailbox would lift the
+  constraint; not implementable at user level today.
 - **Behavior composition via union message types** — a cell
   whose mailbox carries `CounterMsg | LoggingMsg | AdminMsg`
   delegates to per-layer handlers via `bind : Type` narrowing.
@@ -84,11 +85,11 @@ row variable per row, and it must be the last item.
 limit `5 / 60s`. Spec: `docs/design.md` §*Layer 3*.
 
 Tier1 fixtures exercise the three policies under crash and
-escalation conditions. Currently **red against kaikai 0.56.x**
-because of a runtime regression in `spawn_actor`
-(`kaikai#570`) — every fixture that touches an actor primitive
-crashes on entry. Tier0 (compile-only) is green. See
-`docs/known-regressions.md`.
+escalation conditions. Currently **green under the C backend**
+on kaikai 0.56.4. The LLVM backend regression in `spawn_actor`
+(`kaikai#570`) still crashes every actor-touching fixture, so
+the `Makefile` pins `KAI_BACKEND=c` until the LLVM path is
+fixed upstream. See `docs/known-regressions.md`.
 
 ### Bootstrap (state: **shipped**, ahu/app.kai)
 
@@ -135,15 +136,34 @@ JSON output for restart events. Would plug into kaikai's
 stabilises. Persistence to disk via `fs.file.append`
 (available in stdlib).
 
-### Logging (state: **idea**)
+### Logging (state: **shipped**, ahu/log.kai)
 
-`ahu/log.kai` — structured key/value events on top of
-`stdlib/log.kai`'s four-level surface. Adds level filtering,
-structured fields, async fan-out to multiple sinks
-(stderr + `fs.file`), timestamp via `Clock`. The stdlib
-`log.kai` comment explicitly points at ahu as the home for
-this wrapper. Concrete enough that a lane could open at any
-time.
+Structured key/value events on top of `stdlib/log.kai`'s
+four-level surface: `LogLevel`, `Field` (closed sum over
+String/Int/Bool), `log.{debug,info,warn,error}_kv(msg, fields)`
+emitting logfmt-like lines through the existing `Log` ops, and
+pure formatters (`format_field`, `format_fields`,
+`format_event`) for callers that render outside the `Log`
+effect. The stdlib `log.kai` comment that pointed at ahu as the
+home for this wrapper is now satisfied for the structured-fields
+half. Spec: `ahu/log.kai` header.
+
+**Possible follow-ups**:
+
+- **Level filtering as a handler combinator**
+  (`with_min_level`). The natural shape — a `Log` handler that
+  drops or re-emits via `Log.X` — re-enters itself; a clean
+  implementation needs either a `StructuredLog` effect parallel
+  to `Log` or an outer-handler-delegate primitive that has not
+  been designed upstream. Filtering today belongs in the user's
+  own `Log` handler.
+- **Async fan-out to multiple sinks** (stderr + `fs.file`).
+  Depends on the kaikai m8.x reactor for non-blocking file
+  writes; sync fan-out is straightforward in a user `Log`
+  handler.
+- **Wider field types** — `FloatField`, `BytesField`, etc. One-
+  line additions to the `Field` sum once a real consumer needs
+  them.
 
 ### Config (state: **idea**)
 
@@ -187,16 +207,17 @@ over it.
 ## Upstream dependencies — current open items
 
 Live tracking lives in `docs/known-regressions.md`. Summary
-of what currently blocks ahu against kaikai 0.56.x:
+of what currently blocks ahu against kaikai 0.56.4:
 
-- **`kaikai#570`** — `spawn_actor` runtime segfault. Blocks
-  tier1: 12 of 13 fixtures crash on entry. Hard block on any
-  component that uses actor primitives.
-- **`kaikai#567`** — `kai build` cannot resolve a package's own
-  modules from sibling dirs. Worked around with
-  `ahu = { path = "." }` in `kai.toml`; remove when fixed.
+- **`kaikai#570`** — `spawn_actor` runtime segfault under the
+  LLVM backend. Worked around by pinning the C backend in the
+  `Makefile` (`KAI_BACKEND ?= c`); tier1 passes. Drop the pin
+  once LLVM lowering is fixed upstream.
+- **`kaikai#567`** — fixed upstream. Self-dep workaround
+  removed from `kai.toml`; tier0 stays green without it.
 - **`kaikai#571`** — LLVM backend "lambda info missing"
-  diagnostic on nested lambdas with `with_mailbox`. Cosmetic.
+  diagnostic on nested lambdas with `with_mailbox`. Moot
+  while the backend is pinned to C.
 
 ## Optimisation themes (no ordering)
 
