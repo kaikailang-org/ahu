@@ -86,10 +86,12 @@ limit `5 / 60s`. Spec: `docs/design.md` §*Layer 3*.
 
 Tier1 fixtures exercise the three policies under crash and
 escalation conditions. Currently **green under the C backend**
-on kaikai 0.56.4. The LLVM backend regression in `spawn_actor`
-(`kaikai#570`) still crashes every actor-touching fixture, so
-the `Makefile` pins `KAI_BACKEND=c` until the LLVM path is
-fixed upstream. See `docs/known-regressions.md`.
+on kaikai 0.56.6. Under LLVM the wider `spawn_actor` regression
+(`kaikai#570`) is fixed in 0.56.6, but a narrower residue
+(`kaikai#582` — `Cancel.raise()` from a `fiber_spawn`'d body
+under a mailboxed parent) still crashes every restart fixture.
+The `Makefile` pins `KAI_BACKEND=c` until that residue lands.
+See `docs/known-regressions.md`.
 
 ### Bootstrap (state: **shipped**, ahu/app.kai)
 
@@ -214,12 +216,18 @@ over it.
 ## Upstream dependencies — current open items
 
 Live tracking lives in `docs/known-regressions.md`. Summary
-of what currently blocks ahu against kaikai 0.56.4:
+of what currently blocks ahu against kaikai 0.56.6:
 
-- **`kaikai#570`** — `spawn_actor` runtime segfault under the
-  LLVM backend. Worked around by pinning the C backend in the
-  `Makefile` (`KAI_BACKEND ?= c`); tier1 passes. Drop the pin
-  once LLVM lowering is fixed upstream.
+- **`kaikai#570`** — mostly fixed in 0.56.6. The wider
+  `spawn_actor` segfault under LLVM is gone; cells, streams,
+  `cell.ask`, and `ahu.log` all run identically under both
+  backends. A narrower residue is filed as `kaikai#582`.
+- **`kaikai#582`** — `Cancel.raise()` from a `fiber_spawn`'d
+  body still segfaults under LLVM when the parent is parked
+  on its own mailbox. Six tier1 fixtures (all in
+  `ahu.restart`) crash on entry. Worked around by pinning
+  the C backend in the `Makefile` (`KAI_BACKEND ?= c`); tier1
+  passes. Drop the pin once #582 lands.
 - **`kaikai#567`** — fixed upstream. Self-dep workaround
   removed from `kai.toml`; tier0 stays green without it.
 - **`kaikai#571`** — LLVM backend "lambda info missing"

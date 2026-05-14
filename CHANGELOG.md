@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **Upstream-tracking refresh against kaikai 0.56.6.** kaikai#570
+  is mostly fixed in 0.56.6 — under LLVM, cells, streams,
+  `cell.ask`, plain mailboxes, and `ahu.log` all run identically
+  to the C backend now (9 of 15 tier1 fixtures clean under both).
+  A narrower residue remains: `Cancel.raise()` from a fiber
+  spawned via `fiber_spawn` segfaults under LLVM when the parent
+  is parked on its own mailbox, which still tumbles the 6
+  restart-flavoured fixtures. Filed upstream as **kaikai#582**
+  with a 14-line standalone reproducer (no `Link`, no trap-exit,
+  no captures). The Makefile keeps `KAI_BACKEND ?= c` exported
+  for now; comment updated to reference #582 and the reproducer.
+  `docs/known-regressions.md` snapshot rewritten for 0.56.6:
+  #570 marked mostly-fixed, new #582 section with the repro
+  inline + lldb backtrace + ablation table, workaround list
+  references #582 instead of #570. `docs/roadmap.md`
+  Restart-component status and upstream-dependency summary
+  updated to match.
+
 ### Added
 
 - **`examples/backpressured_etl/` — back-pressure reference
