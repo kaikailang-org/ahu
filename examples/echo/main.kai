@@ -51,7 +51,7 @@ type SessionMsg = FrameDone | EndSession
 # Per-session counter cell. Counts frames echoed; prints a
 # summary line and exits when the connection closes.
 fn session_step(count: Int, msg: SessionMsg)
-  : StepResult[Int] / Actor[SessionMsg] + Console
+  : StepResult[Int] / Actor[SessionMsg] + Console + NetTcp
 = match msg {
     FrameDone  -> cell.keep(count + 1)
     EndSession -> {
