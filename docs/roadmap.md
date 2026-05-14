@@ -176,14 +176,21 @@ consumers show what shape of config they want.
 
 Shipped in `examples/`: `counter` (request/reply cell),
 `pipeline` (Layer 1 ETL), `resilient_counter` (restart fault
-tolerance), `echo` (TCP echo, all layers + NetTcp).
+tolerance), `echo` (TCP echo, all layers + NetTcp),
+`backpressured_etl` (`Bounded(c, BlockSender)` mailbox between
+producer and consumer fibres; trace witnesses the producer
+parking when slots fill).
 
 **Possible additions** (no commitment):
 
 - Websocket chat using cells per session + a broadcast
   stream.
-- Back-pressured file → stdout ETL with explicit
-  `Bounded(c, BlockSender)` buffers.
+- Cell-mediated back-pressure once `spawn_actor_policy` lands
+  upstream (`stdlib/actor.kai` §`spawn_actor` v1
+  simplification). The current `backpressured_etl` deliberately
+  avoids cells for that reason; once the upstream gap closes,
+  a sibling example can demonstrate the same pattern with a
+  bounded cell mailbox.
 
 ### Distribution (state: **idea**, far-future)
 
