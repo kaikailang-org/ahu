@@ -8,11 +8,13 @@
 # checkout of kaikai required.
 #
 # Backend pin: `KAI_BACKEND ?= c` is exported below to work around
-# kaikai#570 — the LLVM backend in kaikai 0.56.x segfaults at runtime
-# on `spawn_actor`, taking down every fixture that touches a cell or
-# restart helper. The C backend produces working binaries for all 13
-# fixtures. Drop the export once kaikai#570 lands. See
-# `docs/known-regressions.md`.
+# kaikai#582 — kaikai 0.56.6 fixed most of the original #570
+# `spawn_actor` segfault, but `Cancel.raise()` from a fiber spawned
+# under a mailboxed parent still crashes under LLVM, which takes
+# down the 6 restart-flavoured fixtures. The C backend produces
+# working binaries for all 15 fixtures. Drop the export once
+# kaikai#582 lands. See `docs/known-regressions.md` §*kaikai#582*
+# for the 14-line standalone reproducer.
 
 export KAI_BACKEND ?= c
 
