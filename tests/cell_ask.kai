@@ -1,0 +1,61 @@
+# tests/cell_ask.kai — exercise `cell.ask` synchronous
+# request/reply.
+#
+# The cell holds an Int counter, increments on Tick, replies with
+# the current value when asked. The driver sends three Ticks then
+# uses `cell.ask` to retrieve the count, then stops the cell.
+#
+# Coverage:
+#   - `cell.ask` automates `Actor.self → Actor.send → Actor.receive`.
+#   - The reply payload (`Count(Int)`) is a variant of the cell's
+#     own `CounterMsg` union, matching the structural constraint
+#     documented in `ahu/cell.kai` §`ask`.
+#   - The fixture pattern-matches the receive result (`Count` vs
+#     other) — discrimination stays in the driver, as the header
+#     calls out.
+
+import spawn
+import actor
+import ahu.cell
+
+type CounterMsg
+  = Tick
+  | GetCount(Pid[CounterMsg])
+  | Count(Int)
+  | Stop
+
+fn counter_step(n: Int, msg: CounterMsg)
+  : StepResult[Int] / Console + Actor[CounterMsg]
+= match msg {
+    Tick              -> cell.keep(n + 1)
+    GetCount(reply_to) -> {
+      Actor.send(reply_to, Count(n))
+      cell.keep(n)
+    }
+    Count(_)          -> cell.keep(n)
+    Stop              -> cell.cell_done()
+  }
+
+fn driver(cell_pid: Pid[CounterMsg])
+  : Unit / Console + Actor[CounterMsg]
+= {
+  Actor.send(cell_pid, Tick)
+  Actor.send(cell_pid, Tick)
+  Actor.send(cell_pid, Tick)
+  let reply = cell.ask(cell_pid, (me) => GetCount(me))
+  match reply {
+    Count(n)       -> Stdout.print("driver: count=" ++ int_to_string(n))
+    Tick           -> Stdout.print("driver: unexpected Tick")
+    GetCount(_)    -> Stdout.print("driver: unexpected GetCount")
+    Stop           -> Stdout.print("driver: unexpected Stop")
+  }
+  Actor.send(cell_pid, Stop)
+}
+
+fn run() : Unit / Spawn + Console + Actor[CounterMsg] =
+  cell.with_cell(0, counter_step, driver)
+
+fn main() : Int / Console + Spawn = {
+  with_mailbox { run() }
+  0
+}

@@ -8,6 +8,19 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`cell.ask` — synchronous request/reply helper over the cell
+  mailbox.** Promotes the listed Layer 2 follow-up to shipped:
+  `ask(cell_pid, build_request) : Msg / Actor[Msg] + e` automates
+  the canonical `Actor.self → Actor.send → Actor.receive`
+  triplet that every cell-using fixture currently writes by hand
+  (see `tests/cell_state_record.kai` for the pre-existing
+  pattern). The reply payload must be a variant of the cell's
+  `Msg` union — kaikai's `Actor.send : Pid[T] -> T` ties the
+  destination pid type to the active handler's `Msg`, so a typed
+  reply-channel distinct from the per-fiber mailbox is upstream
+  scope, not user-level. Documented at the call site, fixture
+  `tests/cell_ask.kai`. Tier1 grows from 14 to 15 fixtures.
+
 - **`ahu/log.kai` — structured-fields wrapper over the stdlib `Log`
   effect.** Promotes the Logging component from "idea" to "shipped"
   in `docs/roadmap.md`. Surface: `LogLevel = Debug | Info | Warn |
