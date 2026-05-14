@@ -1,0 +1,34 @@
+# tests/log_basic.kai — smoke test for ahu/log.kai.
+#
+# Coverage:
+#   - the four `*_kv` wrappers route to the matching `Log` op.
+#   - `format_field` / `format_fields` / `format_event` produce
+#     stable logfmt-like strings for the three `Field` variants.
+#   - emission with empty fields renders just the message.
+#
+# A user `Log` handler captures each call as `LEVEL line` on
+# stdout so the diff stays deterministic (the stdlib default
+# handler prefixes ISO 8601 timestamps that vary per run, which
+# make tier1 reject).
+
+import ahu.log
+
+fn main() : Int / Console = {
+  let _ = handle {
+    log.info_kv("user login", [
+      StringField("user", "alice"),
+      IntField("attempts", 3),
+      BoolField("ok", true)
+    ])
+    log.debug_kv("ping", [])
+    log.warn_kv("slow query", [IntField("ms", 1200)])
+    log.error_kv("upstream down", [StringField("host", "db-01")])
+  } with Log {
+    debug(m, resume) -> { Stdout.print("DEBUG " ++ m); resume(()) }
+    info(m, resume)  -> { Stdout.print("INFO " ++ m);  resume(()) }
+    warn(m, resume)  -> { Stdout.print("WARN " ++ m);  resume(()) }
+    error(m, resume) -> { Stdout.print("ERROR " ++ m); resume(()) }
+    return(x) -> x
+  }
+  0
+}
