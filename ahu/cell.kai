@@ -20,7 +20,7 @@
 # propagation lands upstream (`fibers-honesty-targets.md`
 # §*Residual m8.x items*; the allow-list lives in the kaikai
 # compiler's `fiber_producer_helpers`). The with-shape is the
-# load-bearing form for ahu-Tongariki and reads cleanly:
+# load-bearing form for this module and reads cleanly:
 #
 #   with_cell(0, counter_step, (counter) => {
 #     Actor.send(counter, Increment)
