@@ -16,26 +16,55 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   unblocks downstream consumption via
   `kai add github.com/kaikailang-org/ahu`. User-visible imports
   (`import ahu.cell`, `import ahu.restart`, `import ahu.app`)
-  are unchanged. The `Makefile` now passes `--path .` instead of
-  `--path src` so in-repo fixtures resolve the same module names.
-  README gained a "Using ahu as a dependency" section; CLAUDE.md
-  documents the layout convention under a new
+  are unchanged. README gained a "Using ahu as a dependency"
+  section; CLAUDE.md documents the layout convention under a new
   `## Repository layout` section.
+- **Makefile uses `kai` from `PATH` instead of a sibling kaikai
+  checkout.** Removed the `KAI_HOME` / `KAIC2` / `STAGE0` /
+  `STDLIB` variables, the manual prelude enumeration, and the
+  separate `cc` invocation. The Makefile now invokes `kai build
+  <src> -o <out>` for each fixture and lets the wrapper resolve
+  the compiler, stdlib, preludes, and C linker internally. The
+  Makefile shrank from ~120 to ~90 lines and is portable to any
+  machine with `kai` installed (CI, contributors, Linux) without
+  a dev checkout of kaikai.
+- **`examples/echo/main.kai`: `session_step` declares `NetTcp` in
+  its effect row.** `with_cell` requires step and body to share a
+  single row variable (one open row variable per row, structural
+  constraint of kaikai's row system). The echo example's body
+  uses `NetTcp` for the echo loop while the step does not, which
+  the 0.56 typer rejects under the stricter row unification. The
+  one-line accommodation declares `NetTcp` in the step's row even
+  though the step doesn't use it. Not a redesign of the cell
+  API — just a row alignment at the use site. See
+  `docs/known-regressions.md`.
+- **`tests/stream_pipeline.kai`: qualify `list.filter` and
+  `list.foldl`.** With the stdlib reshuffle in 0.5x, bare
+  `filter` / `foldl` now resolve to `option.*` (Option is in the
+  prelude). The pipeline operates on a list, so the calls have to
+  be explicitly qualified.
 
 ### Added
 
-- `docs/known-regressions.md` — landing pad mandated by
-  CLAUDE.md for issues outside the current lane's scope. First
-  entry documents an internal design defect in `ahu/cell.kai`:
-  the module does `import actor` unqualified and reaches private
-  helpers of stdlib `actor.kai` (`overflow_code`,
-  `alloc_for_policy`), which kaikai 0.56 correctly refuses to
-  expose to consumers of `cell`. The defect was hidden by
-  kaikai 0.36.x's non-transitive privacy enforcement.
-  Fix belongs in a follow-up lane (`ahu-cell-privacy-fix`); the
-  package-layout work in this lane is independently correct and
-  unblocks `kai add github.com/kaikailang-org/ahu` once cell is
-  redesigned.
+- **`docs/known-regressions.md`** — landing pad mandated by
+  CLAUDE.md for issues outside the current lane's scope. Documents
+  the four upstream kaikai issues surfaced while bringing ahu onto
+  kaikai 0.56.x:
+  - [kaikai#565](https://github.com/lnds/kaikai/issues/565) —
+    privacy check leaked across module boundaries; **fixed** in
+    0.56.1 (unblocked `import ahu.cell` from downstream
+    consumers).
+  - [kaikai#567](https://github.com/lnds/kaikai/issues/567) —
+    `kai build` cannot resolve a package's own modules from
+    sibling dirs; worked around by `ahu = { path = "." }` in
+    `kai.toml`.
+  - [kaikai#570](https://github.com/lnds/kaikai/issues/570) —
+    `spawn_actor` segfaults at runtime under 0.56.1; 12 of 13
+    fixtures crash on entry. tier1 blocked until upstream fix.
+  - [kaikai#571](https://github.com/lnds/kaikai/issues/571) —
+    LLVM backend emits "lambda info missing" diagnostic for
+    nested lambdas containing `with_mailbox`; cosmetic but
+    unverified semantics.
 - `docs/lane-experience-ahu-tongariki-mvp-close.md` —
   consolidated retrospective for the full MVP arc (PRs
   #5–#10), upstream coordination summary across the six

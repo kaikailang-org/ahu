@@ -70,6 +70,17 @@ pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 # `step` and `body` flow into the caller's row via the open row
 # variable `e`.
 #
+# Both `step` and `body` share the single row variable `e`. That
+# is a structural constraint imposed by kaikai's row system —
+# row syntax permits at most one open row variable per row, and
+# it must be the final item (see the typer's "row variable must
+# be the last item in the row" check). Callers whose step and
+# body have genuinely divergent effects must reconcile them at
+# the call site, typically by `handle`-ing the extra effects of
+# the body before entering the cell scope. The TCP echo example
+# is the canonical case where this constraint surfaces; see
+# `docs/known-regressions.md` for the workaround applied there.
+#
 # The body must coexist in the caller's `Actor[Msg]` row when it
 # wants to send to the cell (or receive replies from it through
 # the same mailbox). The caller typically establishes that with

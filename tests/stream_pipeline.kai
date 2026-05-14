@@ -34,7 +34,7 @@ fn double_traced(x: Int) : Int / Console = {
 fn greater_than_five(x: Int) : Bool = x > 5
 
 fn run() : Unit / Console = {
-  let total = [0..5] | double_traced |> filter(_, greater_than_five) |> foldl(_, 0, (acc, x) => acc + x)
+  let total = [0..5] | double_traced |> list.filter(_, greater_than_five) |> list.foldl(_, 0, (acc, x) => acc + x)
   Stdout.print("total=" ++ int_to_string(total))
 }
 
