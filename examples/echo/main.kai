@@ -34,7 +34,7 @@
 #   - 1024-byte recv buffer; longer payloads chunked across
 #     receive calls.
 #   - No graceful Ctrl-C handling. ahu's `run_app` is a v1
-#     placeholder (see `src/ahu/app.kai` header); Signal-based
+#     placeholder (see `ahu/app.kai` header); Signal-based
 #     shutdown that lets cell `Cancel` handlers run waits on
 #     the reactor. Today: SIGINT/SIGTERM kill the process
 #     abruptly.

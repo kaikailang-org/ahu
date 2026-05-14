@@ -111,8 +111,8 @@ without being told:
 
 ## Testing tiers (when implementation lands)
 
-ahu has no implementation yet, so there is no test runner to wire up.
-Once src/ starts filling in `ahu-Tongariki`:
+ahu-Tongariki shipped the first implementation; the test runner is
+the repo `Makefile` driving the kaikai compiler. Tiers:
 
 - **Tier 0 — pre-commit fast sanity (~30–60s).** ahu unit tests over
   the kaikai test runner.
@@ -166,8 +166,37 @@ gate.
 - **Do not design against post-MVP targets** (Windows, WASM,
   multi-thread scheduler) but do not invest effort in them either.
 
+## Repository layout
+
+ahu follows the kaikai package convention: module names derive
+from the `.kai` file's path relative to the package root (the
+directory containing `kai.toml`). The three Layer 2 / Layer 3
+modules live at the top level under `ahu/`:
+
+```
+kai.toml
+ahu/
+  cell.kai      # import ahu.cell
+  restart.kai   # import ahu.restart
+  app.kai       # import ahu.app
+examples/
+tests/
+docs/
+```
+
+A downstream consumer adds the dependency with
+`kai add github.com/kaikailang-org/ahu` and imports the modules
+dotted as above. The Makefile passes `--path .` to `kaic2` so
+in-repo fixtures resolve the same module names without
+re-publishing.
+
+Do not reintroduce a `src/` prefix. Putting `cell.kai` under
+`src/ahu/cell.kai` would make its kaikai module name
+`src.ahu.cell`, which breaks every `import ahu.cell` in fixtures
+and downstream code.
+
 ## Current state
 
 `docs/design.md` pins the design. `docs/roadmap.md` pins the
-milestone series. No `src/` content yet — implementation lanes for
-`ahu-Tongariki` open after this design PR lands.
+milestone series. ahu-Tongariki shipped 2026-05-02 (see
+`docs/lane-experience-ahu-tongariki-mvp-close.md`).

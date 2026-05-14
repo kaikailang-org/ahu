@@ -26,10 +26,10 @@ fixtures against kaikai 0.36.x. Retrospective at
 
 ```
 Layer 1 — Streams              ✓ kaikai stdlib + language sugars
-Layer 2 — Cells                ✓ src/ahu/cell.kai
-Layer 3 — Restart helpers      ✓ src/ahu/restart.kai
-restartable_cell               ✓ src/ahu/restart.kai
-run_app bootstrap              ✓ src/ahu/app.kai (v1 placeholder)
+Layer 2 — Cells                ✓ ahu/cell.kai
+Layer 3 — Restart helpers      ✓ ahu/restart.kai
+restartable_cell               ✓ ahu/restart.kai
+run_app bootstrap              ✓ ahu/app.kai (v1 placeholder)
 
 Demos:
   examples/counter/            request/reply counter (Layer 2)
@@ -62,6 +62,32 @@ Each project has its own repository, its own
 `docs/roadmap.md`, and its own
 `Tongariki / Anga Roa / Orongo / Anakena` series. See
 `kaikai/docs/roadmap.md` for the meta-roadmap.
+
+## Using ahu as a dependency
+
+ahu is a kaikai package. From any kaikai project (one with a
+`kai.toml` at its root):
+
+```sh
+kai add github.com/kaikailang-org/ahu
+```
+
+That adds `ahu = { source = "github.com/kaikailang-org/ahu", ref = "main" }`
+to `kai.toml`, pins the resolved SHA in `kai.lock`, and caches
+the repo under `~/Library/Caches/kai/pkg/` (macOS) or
+`~/.cache/kai/pkg/` (Linux). User code then imports the
+modules dotted:
+
+```kai
+import ahu.cell
+import ahu.restart
+import ahu.app
+```
+
+The `kai.toml` at the root of this repository (with the
+top-level `ahu/` directory) is what makes those imports
+resolve — kaikai derives module names from each `.kai` file's
+path relative to the package root.
 
 ## A taste
 

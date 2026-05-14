@@ -1,4 +1,4 @@
-# src/ahu/restart.kai — ahu Layer 3: restart helpers.
+# ahu/restart.kai — ahu Layer 3: restart helpers.
 # Imported by user code as `import ahu.restart`; functions are
 # accessed dotted (`restart.with_restart(...)`,
 # `restart.default_limit()`); types stay bare

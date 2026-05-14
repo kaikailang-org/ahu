@@ -24,7 +24,7 @@ roadmap still references the placeholder names `ahu-db` and
 ## Status snapshot
 
 - **HEAD (2026-05-03)**: ahu-Tongariki **shipped**. Three
-  modules under `src/ahu/` (`cell.kai`, `restart.kai`,
+  modules under `ahu/` (`cell.kai`, `restart.kai`,
   `app.kai`), four examples (`counter`, `pipeline`,
   `resilient_counter`, `echo`), 13 tier1 fixtures. `VERSION`
   is `0.0.1`, ready for the integrator to bump to `0.1.0`
@@ -69,7 +69,7 @@ streaming server and recognise the result as
 
 **Scope** (per `docs/design.md` §*Decision 7*):
 
-- **Layer 1 — Streams** (`src/stream.kai`).
+- **Layer 1 — Streams** (`ahu/stream.kai`).
   - Types: `Source[T, e]`, `Flow[A, B, e]`, `Sink[T, R, e]`.
   - Constructors: `Source.from_list`, `Source.repeat`,
     `Source.from_listener` (TCP), `Source.tick`.
@@ -81,7 +81,7 @@ streaming server and recognise the result as
   - Composition operator: `|>` (kaikai's existing apply-pipe).
   - `Stream.run(pipeline)` materialises a Source-...-Sink pipeline.
 
-- **Layer 2 — Cells** (`src/ahu/cell.kai`).
+- **Layer 2 — Cells** (`ahu/cell.kai`).
   - Type: `Cell[Msg, e]` (a closure in the recursive function
     shape).
   - `start_cell(body) : Pid[Msg]` constructor.
@@ -89,7 +89,7 @@ streaming server and recognise the result as
   - The `receive { ... }` form desugaring to `Actor.receive()`
     + match.
 
-- **Layer 3 — Restart helpers** (`src/ahu/restart.kai`).
+- **Layer 3 — Restart helpers** (`ahu/restart.kai`).
   - `RestartPolicy = Permanent | Transient | Temporary`.
   - `RestartLimit = { intensity, period }` with default
     `5 / 60s`.
@@ -97,7 +97,7 @@ streaming server and recognise the result as
     bodies.
   - `restartable_cell(policy, limit, body)` for cells.
 
-- **Bootstrap** (`src/app.kai`).
+- **Bootstrap** (`ahu/app.kai`).
   - `run_app(root) : Unit` — installs `SIGINT` / `SIGTERM`
     handlers, opens root nursery, runs root inside, blocks on
     signal, propagates cancellation.
@@ -134,7 +134,7 @@ streaming server and recognise the result as
 
 **Definition of Done**:
 
-1. `kai build` cleanly compiles `src/`, `tests/`, and
+1. `kai build` cleanly compiles `ahu/`, `tests/`, and
    `examples/echo/`.
 2. `kai test tests/` is green.
 3. The end-to-end command from `docs/design.md` §*End-to-end

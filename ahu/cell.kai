@@ -1,4 +1,4 @@
-# src/ahu/cell.kai — ahu Layer 2: long-running stateful entities.
+# ahu/cell.kai — ahu Layer 2: long-running stateful entities.
 # Imported by user code as `import ahu.cell`; functions are
 # accessed dotted (`cell.with_cell(...)`, `cell.keep(s)`,
 # `cell.cell_done()`); types stay bare (`StepResult[State]`).

@@ -6,8 +6,36 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **Repository layout for kaikai package consumption.** ahu is now
+  a kaikai package: `kai.toml` lives at the repo root and module
+  sources moved from `src/ahu/*.kai` to top-level `ahu/*.kai`.
+  This matches the kaikai package convention (module names derive
+  from each `.kai` file's path relative to the package root) and
+  unblocks downstream consumption via
+  `kai add github.com/kaikailang-org/ahu`. User-visible imports
+  (`import ahu.cell`, `import ahu.restart`, `import ahu.app`)
+  are unchanged. The `Makefile` now passes `--path .` instead of
+  `--path src` so in-repo fixtures resolve the same module names.
+  README gained a "Using ahu as a dependency" section; CLAUDE.md
+  documents the layout convention under a new
+  `## Repository layout` section.
+
 ### Added
 
+- `docs/known-regressions.md` — landing pad mandated by
+  CLAUDE.md for issues outside the current lane's scope. First
+  entry documents an internal design defect in `ahu/cell.kai`:
+  the module does `import actor` unqualified and reaches private
+  helpers of stdlib `actor.kai` (`overflow_code`,
+  `alloc_for_policy`), which kaikai 0.56 correctly refuses to
+  expose to consumers of `cell`. The defect was hidden by
+  kaikai 0.36.x's non-transitive privacy enforcement.
+  Fix belongs in a follow-up lane (`ahu-cell-privacy-fix`); the
+  package-layout work in this lane is independently correct and
+  unblocks `kai add github.com/kaikailang-org/ahu` once cell is
+  redesigned.
 - `docs/lane-experience-ahu-tongariki-mvp-close.md` —
   consolidated retrospective for the full MVP arc (PRs
   #5–#10), upstream coordination summary across the six
