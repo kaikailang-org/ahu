@@ -8,6 +8,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **Drop `KAI_BACKEND=c` pin — kaikai 0.59 closes the LLVM
+  regression arc.** kaikai 0.58 fixed kaikai#582's minimal
+  Cancel-raise repro; kaikai 0.59 fixed the residue (Link/Monitor
+  from spawned fibers) that was still crashing the 6 restart-
+  flavoured fixtures and silenced the cosmetic kaikai#571
+  diagnostic. Local verification: `make tier1` (auto-detect
+  → LLVM on clang-equipped hosts) and `KAI_BACKEND=c make tier1`
+  both green at 16/16. The Makefile now leaves backend selection
+  to `kai`'s auto-detect with overrides documented inline.
+  `docs/known-regressions.md` snapshot rewritten — top-of-file
+  table now reads "no active blockers" and the #570/#582/#571
+  sections are recast as historical with resolution notes. The
+  #582 residue (never opened upstream because 0.59 dropped first)
+  is documented inline with its 12-line ablation repro for
+  posterity. `docs/roadmap.md` Restart-component status flipped
+  from "green under the C backend" to "green under both
+  backends"; upstream-dependencies summary collapsed to a one-
+  paragraph no-blockers statement.
+
 - **Upstream-tracking refresh against kaikai 0.56.6.** kaikai#570
   is mostly fixed in 0.56.6 — under LLVM, cells, streams,
   `cell.ask`, plain mailboxes, and `ahu.log` all run identically

@@ -85,13 +85,12 @@ row variable per row, and it must be the last item.
 limit `5 / 60s`. Spec: `docs/design.md` §*Layer 3*.
 
 Tier1 fixtures exercise the three policies under crash and
-escalation conditions. Currently **green under the C backend**
-on kaikai 0.56.6. Under LLVM the wider `spawn_actor` regression
-(`kaikai#570`) is fixed in 0.56.6, but a narrower residue
-(`kaikai#582` — `Cancel.raise()` from a `fiber_spawn`'d body
-under a mailboxed parent) still crashes every restart fixture.
-The `Makefile` pins `KAI_BACKEND=c` until that residue lands.
-See `docs/known-regressions.md`.
+escalation conditions. **Green under both backends (C and LLVM)
+on kaikai 0.59.0.** The LLVM regressions that haunted 0.56.x
+through 0.58 (`kaikai#570`, `#582`, the `Link`/`Monitor`
+residue) are all closed; the Makefile no longer pins the
+backend. See `docs/known-regressions.md` for the historical
+arc.
 
 ### Bootstrap (state: **shipped**, ahu/app.kai)
 
@@ -215,24 +214,12 @@ over it.
 
 ## Upstream dependencies — current open items
 
-Live tracking lives in `docs/known-regressions.md`. Summary
-of what currently blocks ahu against kaikai 0.56.6:
-
-- **`kaikai#570`** — mostly fixed in 0.56.6. The wider
-  `spawn_actor` segfault under LLVM is gone; cells, streams,
-  `cell.ask`, and `ahu.log` all run identically under both
-  backends. A narrower residue is filed as `kaikai#582`.
-- **`kaikai#582`** — `Cancel.raise()` from a `fiber_spawn`'d
-  body still segfaults under LLVM when the parent is parked
-  on its own mailbox. Six tier1 fixtures (all in
-  `ahu.restart`) crash on entry. Worked around by pinning
-  the C backend in the `Makefile` (`KAI_BACKEND ?= c`); tier1
-  passes. Drop the pin once #582 lands.
-- **`kaikai#567`** — fixed upstream. Self-dep workaround
-  removed from `kai.toml`; tier0 stays green without it.
-- **`kaikai#571`** — LLVM backend "lambda info missing"
-  diagnostic on nested lambdas with `with_mailbox`. Moot
-  while the backend is pinned to C.
+Live tracking lives in `docs/known-regressions.md`. Against
+kaikai 0.59.0: **no active blockers.** The LLVM regression arc
+that ran from 0.56.x through 0.58 (`kaikai#570`, `#582`, the
+`Link`/`Monitor` residue, the `#571` cosmetic diagnostic) is
+fully closed. tier1 passes under both backends; the Makefile
+no longer pins one.
 
 ## Optimisation themes (no ordering)
 

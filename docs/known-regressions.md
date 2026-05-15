@@ -6,15 +6,20 @@ This file is the documented landing pad mandated by `CLAUDE.md`
 upstream issues inline; they record them here and leave the fix
 to a dedicated upstream PR.
 
-Status snapshot (2026-05-14, against kaikai 0.56.6):
+Status snapshot (2026-05-14, against kaikai 0.59.0):
+
+**No active blockers.** Tier1 passes under both backends (C and LLVM)
+with no Makefile pin. The LLVM regressions that haunted 0.56.x and
+0.58 are all closed.
 
 | Issue | Layer | Status | Blocks |
 |---|---|---|---|
-| [kaikai#565](https://github.com/lnds/kaikai/issues/565) — privacy check leaks across module boundary | typer | **fixed in 0.56.1** | unblocks `import ahu.cell` from downstream consumers |
-| [kaikai#567](https://github.com/lnds/kaikai/issues/567) — `kai build` cannot resolve a package's own modules from sibling dirs | frontend wrapper | **fixed in 0.56.x** | self-dep workaround dropped from `kai.toml` |
-| [kaikai#570](https://github.com/lnds/kaikai/issues/570) — `spawn_actor` segfaults at runtime under the LLVM backend | LLVM backend | **mostly fixed in 0.56.6** | cells / streams / `cell.ask` / `with_mailbox` now run under LLVM; a narrower residue still crashes restart fixtures (see *Residue* below) |
-| [kaikai#582](https://github.com/lnds/kaikai/issues/582) — LLVM `Cancel.raise()` from inside `fiber_spawn` segfaults when the parent has a mailbox | LLVM backend | open | tier1 under LLVM: 6 of 15 fixtures crash (all the `with_restart` / `restartable_cell` paths). Worked around by pinning backend to C |
-| [kaikai#571](https://github.com/lnds/kaikai/issues/571) — LLVM backend emits "lambda info missing" for nested lambdas with `with_mailbox` | LLVM backend | open | cosmetic — moot while backend is pinned to C |
+| [kaikai#565](https://github.com/lnds/kaikai/issues/565) — privacy check leaks across module boundary | typer | **fixed in 0.56.1** | nothing (closed) |
+| [kaikai#567](https://github.com/lnds/kaikai/issues/567) — `kai build` cannot resolve a package's own modules from sibling dirs | frontend wrapper | **fixed in 0.56.x** | nothing (closed) |
+| [kaikai#570](https://github.com/lnds/kaikai/issues/570) — `spawn_actor` segfaults at runtime under the LLVM backend | LLVM backend | **fully fixed in 0.59.0** | nothing (closed) |
+| [kaikai#582](https://github.com/lnds/kaikai/issues/582) — LLVM `Cancel.raise()` from inside `fiber_spawn` segfaults when the parent has a mailbox | LLVM backend | **fixed in 0.58** | nothing (closed) |
+| Residue of #582 — LLVM `Link.link` / `Monitor.monitor` from spawned fiber segfaults at body entry | LLVM backend | **fixed in 0.59.0** | nothing (closed) |
+| [kaikai#571](https://github.com/lnds/kaikai/issues/571) — LLVM backend "lambda info missing" diagnostic | LLVM backend | **fixed in 0.59.0** (no longer emitted) | nothing (closed) |
 
 ## kaikai#567 — fixed
 
@@ -24,27 +29,26 @@ path, so `import ahu.cell` resolves from `tests/*.kai` and
 `ahu = { path = "." }` workaround was removed from `kai.toml`.
 Tier0 stays green without it under kaikai 0.56.4.
 
-## kaikai#570 — mostly fixed in 0.56.6
+## kaikai#570 — fully fixed in 0.59.0 (historical)
 
 Under kaikai 0.56.4 every `spawn_actor` call segfaulted under the
-LLVM backend. kaikai 0.56.6 fixes the bulk of that path: cells
-(`cell.with_cell`, `cell.ask`), pipelines, plain `with_mailbox`,
-and `log_basic` now compile and run under LLVM identically to the
-C backend. **9 of 15 tier1 fixtures pass under LLVM** at 0.56.6;
-they did not under 0.56.4.
+LLVM backend. kaikai 0.56.6 fixed the bulk of that path
+(cells, pipelines, plain `with_mailbox`, `log_basic`); kaikai
+0.58 fixed the narrower #582 residue (`Cancel.raise()` from a
+spawned fiber); and kaikai 0.59.0 closed the last residue
+(`Link.link` / `Monitor.monitor` from a spawned fiber's body —
+described under "kaikai#582 residue" below). The whole #570
+arc is now history; tier1 passes under LLVM with no workaround.
 
-A narrower residue remains and still tumbles the rest of tier1
-— filed as kaikai#582. See the next section.
-
-## kaikai#582 — `Cancel.raise()` from a spawned fiber, parent in `with_mailbox`
+## kaikai#582 — fixed in 0.58 (historical)
 
 The 6 failing tier1 fixtures (`cross_restartable_cell{,_restart}`,
 `restart_intensity_escalate`, `restart_temporary_crash`,
 `restart_transient_normal`, `examples/resilient_counter`) all
 share one shape: a parent inside `with_mailbox`, a child fiber
 spawned via `fiber_spawn`, and the child eventually calling
-`Cancel.raise()`. Under LLVM the child segfaults *immediately
-after* `Cancel.raise()` — the trampoline reaches the resume
+`Cancel.raise()`. Under LLVM the child segfaulted *immediately
+after* `Cancel.raise()` — the trampoline reached the resume
 continuation with a null pointer.
 
 **Minimal reproducer** (no `ahu.restart`, no `Link`, no
@@ -92,37 +96,67 @@ was much wider; this residue is the same general area (closure /
 continuation lowering under LLVM) but a small leftover slice. It
 needs its own upstream issue.
 
-**Workaround active in this repository**: `Makefile` exports
-`KAI_BACKEND ?= c`, so `make tier0` and `make tier1` pass against
-kaikai 0.56.6 without manual intervention. Drop the export once
-kaikai#582 lands.
+**Resolution**: kaikai 0.58 closed this minimal-shape segfault.
+The Makefile pin (`KAI_BACKEND=c`) was retained until 0.59 because
+a narrower residue (Link/Monitor in spawned bodies) still crashed
+the restart fixtures even though #582's minimal repro was clean.
+That residue is described next; both are now closed and the pin
+was dropped.
 
-Effect on tier1 under LLVM: 6 of 15 fixtures crash, all in the
-restart paths. The other 9 (cells, ask, log, pipeline, streams,
-counter example) are clean under LLVM at 0.56.6. Tier0
-(compile-only) is green at 15 fixtures regardless of backend.
+## kaikai#582 residue — fixed in 0.59.0 (historical)
 
-## kaikai#571 — LLVM backend lambda-info diagnostic
+After 0.58 closed #582's minimal Cancel-raise repro, the 6 ahu
+restart fixtures still segfaulted under LLVM. Ablation (May 2026)
+isolated a different trigger: any `Link.link(_)` or
+`Monitor.monitor(_)` from a fiber spawned via `fiber_spawn` —
+no Cancel, no trap-exit, no parent mailbox required.
 
-The LLVM backend prints `llvm: lambda info missing at <line>:<col>`
-to stderr whenever codegen descends into a nested lambda whose body
-opens an effect handler block (typically `with_mailbox`). It's
-emitted as a warning — compilation succeeds and a binary is
-produced — but it points at canonical patterns:
+**Minimal reproducer that 0.59 closed** (12 lines):
 
-- `ahu/restart.kai:127`: `with_mailbox { cell.with_cell(initial, step, driver) }` inside the `with_restart` body.
-- `ahu/restart.kai:141`: `fiber_spawn(() => with_mailbox { body(parent) })`.
+```kai
+import actor
+import spawn
 
-We have not verified that the produced IR is correct in the
-absence of whatever metadata the diagnostic complains about. The
-6-line standalone reproducer in the issue reliably triggers it.
+fn body() : Unit / Link + Actor[String] + Console = {
+  let me = Actor.self()
+  Link.link(me)
+  Stdout.print("body: ran (linked to self)")
+}
+
+fn main() : Int / Console + Spawn + Link = {
+  let f = fiber_spawn(() => with_mailbox { body() })
+  fiber_await(f)
+  0
+}
+```
+
+The crash was at `kai_body + 44` with `ldr x1, [x0]` and
+`x0 = NULL`, two trampoline frames deep — same shape as the
+#582 backtrace, suggesting the same closure / continuation
+lowering area in the LLVM emitter. Confirmed to also affect
+`Monitor.monitor(_)` (not specific to Link). `Actor.send` from
+the same shape was clean — the bug was specific to fiber-
+relationship operations.
+
+**Resolution**: kaikai 0.59.0 fixes the lowering. All 16 ahu
+tier1 fixtures pass under LLVM at 0.59.0. Filed by ahu's
+ablation lane; never opened as a separate upstream issue
+because 0.59.0 dropped before that step happened.
+
+## kaikai#571 — fixed in 0.59.0 (historical)
+
+The LLVM backend used to print `llvm: lambda info missing at
+<line>:<col>` to stderr whenever codegen descended into a nested
+lambda whose body opened an effect handler block (typically
+`with_mailbox`). The warning was cosmetic — compilation
+succeeded — but it pointed at canonical ahu patterns
+(`ahu/restart.kai:127`, `ahu/restart.kai:141`).
+
+**Resolution**: kaikai 0.59.0 no longer emits the diagnostic.
+Verified locally: `make tier0` produces no `llvm:` warnings.
 
 ## Workarounds applied in this repository
 
-- **`Makefile` exports `KAI_BACKEND ?= c`**: pinned for kaikai#582
-  (residue of #570 still active under LLVM in 0.56.6); forces
-  every fixture to be built with the C backend so tier1 passes
-  against kaikai 0.56.6. Drop once kaikai#582 lands.
 - **`examples/echo/main.kai` row alignment**: the echo example's
   `session_step` had effect row `Actor[SessionMsg] + Console`, but
   the body passed to `cell.with_cell` runs under
