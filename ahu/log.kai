@@ -77,10 +77,20 @@
 #   - **Trace context propagation**, **redaction**, **rotation**,
 #     **colour codes** — out of scope at this layer.
 
+# Every `pub` in this module is `#[unstable]` for the Anga Roa
+# edition. The structured-fields surface is v1; the deferrals
+# enumerated above (level filtering, async fan-out, wider field
+# types) will reshape the shape as they land. Consumers that
+# import these decls should add `ahu = true` under `[unstable]`
+# in their `kai.toml` to acknowledge the disclosure. When a decl
+# stabilises, the annotation is dropped in a `feat:` release.
+
 # ---- types ----
 
+#[unstable]
 pub type LogLevel = Debug | Info | Warn | Error
 
+#[unstable]
 pub type Field
   = StringField(String, String)
   | IntField(String, Int)
@@ -92,6 +102,7 @@ pub type Field
 # stays close to logfmt and trusts the caller not to embed
 # whitespace or `=` in keys. Quoting is a v2 concern once a
 # concrete consumer needs it.
+#[unstable]
 pub fn format_field(f: Field) : String = match f {
   StringField(k, v) -> k ++ "=" ++ v
   IntField(k, v)    -> k ++ "=" ++ int_to_string(v)
@@ -101,6 +112,7 @@ pub fn format_field(f: Field) : String = match f {
 # Join formatted fields with single spaces. Empty list yields the
 # empty string (no leading/trailing space) so `format_event` can
 # concatenate without conditional padding.
+#[unstable]
 pub fn format_fields(fields: [Field]) : String = match fields {
   []        -> ""
   [f]       -> format_field(f)
@@ -114,6 +126,7 @@ pub fn format_fields(fields: [Field]) : String = match fields {
 # of the rendered string — the stdlib `Log` op carries the level
 # already, and emitting it twice would clutter the default
 # handler's output.
+#[unstable]
 pub fn format_event(msg: String, fields: [Field]) : String =
   match fields {
     [] -> msg
@@ -128,14 +141,18 @@ pub fn format_event(msg: String, fields: [Field]) : String =
 # inside this module collides with this module's own `log` prefix
 # (both end up as `log` in the dotted-call resolver). Going
 # straight through the effect avoids that name clash.
+#[unstable]
 pub fn debug_kv(msg: String, fields: [Field]) : Unit / Log =
   Log.debug(format_event(msg, fields))
 
+#[unstable]
 pub fn info_kv(msg: String, fields: [Field]) : Unit / Log =
   Log.info(format_event(msg, fields))
 
+#[unstable]
 pub fn warn_kv(msg: String, fields: [Field]) : Unit / Log =
   Log.warn(format_event(msg, fields))
 
+#[unstable]
 pub fn error_kv(msg: String, fields: [Field]) : Unit / Log =
   Log.error(format_event(msg, fields))
