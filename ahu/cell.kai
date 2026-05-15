@@ -120,6 +120,14 @@ pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 # channel" primitive distinct from the per-fiber mailbox. The
 # `Pid[Msg]` typing of `Actor.send` makes this not implementable
 # at user-level today.
+#
+# Marked `#[unstable]` for the Anga Roa edition: the planned
+# `ask_timeout` follow-up (depends on the `Clock` effect) and the
+# eventual cross-mailbox variant (depends on upstream reply-channel
+# primitive) may shift this signature. The cell-loop core
+# (`with_cell` / `keep` / `cell_done` / `StepResult`) stays under
+# the edition contract.
+#[unstable]
 pub fn ask[Msg, e](
   cell_pid:      Pid[Msg],
   build_request: (Pid[Msg]) -> Msg
