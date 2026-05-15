@@ -6,6 +6,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **Anga Roa edition contract.** `kai.toml` now declares
+  `edition = "anga-roa"`, pinning ahu to kaikai's first post-
+  Tongariki edition (kaikai 0.63 adopted editions; 0.65 shipped
+  the Anga Roa pipe convention dispatch and `#[unstable]`
+  attribute syntax; 0.66 the R1 reactor). Iterating `pub` decls
+  carry per-declaration `#[unstable]` annotations so the contract
+  pins only the surface that is genuinely settled. **Stable**
+  under the contract: `ahu.cell.{StepResult, keep, cell_done,
+  with_cell}` (the cell-loop core, unchanged since Tongariki).
+  **`#[unstable]`**: `ahu.cell.ask`, every `pub` in `ahu.restart`,
+  every `pub` in `ahu.log`, and `ahu.app.run_app`. ahu's own
+  `kai.toml` opts in via `[unstable] cell = true; restart =
+  true; log = true; app = true` so the in-tree fixtures build
+  warning-free; downstream consumers do the same in their own
+  `kai.toml`. README gains a `## Stability` section explaining
+  the contract and listing the opt-in for downstream callers.
+
 ### Fixed
 
 - **CI: `kai` is now exposed on `PATH` after building kaikai.** The
