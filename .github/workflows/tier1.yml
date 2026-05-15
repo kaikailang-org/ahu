@@ -65,10 +65,13 @@ jobs:
         working-directory: kaikai
         run: make all
 
+      - name: Expose `kai` on PATH
+        run: echo "$GITHUB_WORKSPACE/kaikai/bin" >> "$GITHUB_PATH"
+
       - name: ahu tier0 (compile module + fixtures)
         working-directory: ahu
-        run: make tier0 KAI_HOME=$GITHUB_WORKSPACE/kaikai
+        run: make tier0
 
       - name: ahu tier1 (run fixtures + diff outputs)
         working-directory: ahu
-        run: make tier1 KAI_HOME=$GITHUB_WORKSPACE/kaikai
+        run: make tier1
