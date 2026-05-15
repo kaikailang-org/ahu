@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI: `kai` is now exposed on `PATH` after building kaikai.** The
+  Makefile's "use `kai` from PATH" refactor (PR landing the
+  portable Makefile) was never reflected in `.github/workflows/tier1.yml`,
+  which kept passing a vestigial `KAI_HOME=$GITHUB_WORKSPACE/kaikai`
+  to `make` while the Makefile itself ignored that variable. Result:
+  `make: kai: No such file or directory` on every CI run since the
+  refactor (kaikai 0.56.x onwards). The workflow now adds an
+  `Expose kai on PATH` step that appends
+  `$GITHUB_WORKSPACE/kaikai/bin` to `$GITHUB_PATH` after the
+  kaikai build, and the `KAI_HOME=` argument is dropped from both
+  `make` invocations.
+
 ### Changed
 
 - **`examples/counter/main.kai` migrated to `cell.ask`.** The
