@@ -1,4 +1,5 @@
 name = "ahu"
 version = "0.0.1"
+edition = "anga-roa"
 
 [dependencies]
