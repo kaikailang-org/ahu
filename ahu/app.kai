@@ -47,4 +47,14 @@
 #   5. Unsubscribe from signals; return cleanly.
 
 # Run an ahu application root. v1 placeholder — see header.
+#
+# Marked `#[unstable]` for the Anga Roa edition: this is a thin
+# pass-through pending the Signal-based shutdown integration that
+# kaikai 0.66's R1 reactor (file + sleep + process park) just
+# unblocked. The signature *will* shift when the upgrade lands
+# — the whole point of `run_app` is the user's main wraps in it
+# today and inherits the new behaviour transparently when this
+# module catches up. The `#[unstable]` annotation is the
+# disclosure to consumers that this catch-up is still pending.
+#[unstable]
 pub fn run_app[e](root: () -> Unit / e) : Unit / e = root()
