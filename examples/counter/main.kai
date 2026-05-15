@@ -1,4 +1,5 @@
-# examples/counter/main.kai — ahu Cell smoke test.
+# examples/counter/main.kai — ahu Cell smoke test using
+# `cell.ask` for the request/reply round trip.
 #
 # A counter cell that increments on Increment, replies on
 # GetValue(reply_to), and exits on Stop.
@@ -6,17 +7,16 @@
 # kaikai's actor model is one mailbox per fiber, so client and
 # cell unify their message protocol under a single `CounterMsg`
 # type — the reply variant `ReplyValue(Int)` rides the same
-# mailbox the client uses for outbound requests. This is the
-# canonical kaikai actor pattern (a single `Actor[Msg]` effect
-# can both send to and receive from any pid of that Msg type).
-# Cross-type request/reply via `with_mailbox` becomes interesting
-# only once a richer protocol like `Cell.ask` lands.
+# mailbox the client uses for outbound requests. `cell.ask`
+# automates the `Actor.self → Actor.send → Actor.receive`
+# triplet for the client side.
 #
 # Exercises:
 #   - StepResult sum type with Continue / Done.
 #   - Effect-row propagation: Console flows out through the
-#     step function's `/ e` row into start_cell's caller.
+#     step function's `/ e` row into with_cell's caller.
 #   - Bidirectional messaging on a unified Msg type.
+#   - `cell.ask` for synchronous request/reply.
 #   - Graceful shutdown: counter receives Stop, returns Done,
 #     fiber exits.
 
@@ -53,15 +53,14 @@ fn counter_step(value: Int, msg: CounterMsg)
 
 # Driver. Inside a with_mailbox of CounterMsg type so it can both
 # send to the cell and receive ReplyValue back through the same
-# mailbox.
-fn driver_body(me: Pid[CounterMsg], counter: Pid[CounterMsg])
+# mailbox — `cell.ask` handles the receive and self-pid wiring.
+fn driver_body(counter: Pid[CounterMsg])
   : Unit / Console + Actor[CounterMsg]
 = {
   Actor.send(counter, Increment)
   Actor.send(counter, Increment)
   Actor.send(counter, Increment)
-  Actor.send(counter, GetValue(me))
-  match Actor.receive() {
+  match cell.ask(counter, (me) => GetValue(me)) {
     ReplyValue(v) -> Stdout.print("driver: got value " ++ int_to_string(v))
     Increment     -> Stdout.print("driver: unexpected Increment")
     GetValue(_)   -> Stdout.print("driver: unexpected GetValue")
@@ -70,10 +69,8 @@ fn driver_body(me: Pid[CounterMsg], counter: Pid[CounterMsg])
   Actor.send(counter, Stop)
 }
 
-fn run() : Unit / Spawn + Console + Actor[CounterMsg] = {
-  let me = Actor.self()
-  cell.with_cell(0, counter_step, (counter) => driver_body(me, counter))
-}
+fn run() : Unit / Spawn + Console + Actor[CounterMsg] =
+  cell.with_cell(0, counter_step, driver_body)
 
 fn main() : Int / Console + Spawn = {
   with_mailbox { run() }
