@@ -93,8 +93,8 @@ path relative to the package root.
 
 ## Stability
 
-ahu ships against the **Anga Roa** edition of kaikai
-(`edition = "anga-roa"` in `kai.toml`). The edition contract
+ahu ships against the **Hanga Roa** edition of kaikai
+(`edition = "hanga-roa"` in `kai.toml`). The edition contract
 pins ahu's `pub` declarations the same way it pins kaikai's
 own surface — once a decl is in, breaking it requires an
 edition bump.
@@ -112,7 +112,7 @@ log     = true   # every log helper is #[unstable]
 app     = true   # run_app placeholder is #[unstable]
 ```
 
-What is **stable** under the Anga Roa edition contract:
+What is **stable** under the Hanga Roa edition contract:
 
 - `ahu.cell`: `StepResult`, `keep`, `cell_done`, `with_cell` —
   the cell-loop core has not changed since Tongariki shipping
