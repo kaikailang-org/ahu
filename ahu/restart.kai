@@ -56,6 +56,7 @@
 
 import actor
 import spawn
+import time
 import ahu.cell
 
 # Every `pub` in this module is `#[unstable]` for the Hanga Roa
@@ -92,6 +93,44 @@ pub fn with_restart[e](
   let _ = fiber_set_trap_exit(true)
   let parent = Actor.self()
   restart_loop(policy, limit, body, parent, 0)
+}
+
+# Same shape as `with_restart` but sleeps `backoff` between
+# restarts. The first body invocation is immediate; subsequent
+# re-spawns wait `backoff` after the previous body's termination
+# message lands on the supervisor's mailbox. The intent is to
+# rate-limit a crashloop without changing the policy semantics.
+#
+# Why a separate function rather than a `backoff: Option[Duration]`
+# parameter on `with_restart`: the row gains `Clock`, which we
+# don't want to leak into callers that don't need backoff. The
+# `with_restart` row stays as-is; only callers asking for backoff
+# pay the `Clock` cost in their signature.
+#
+# Cooperative semantics: under kaikai 0.66+'s R1 reactor,
+# `Clock.sleep` parks the calling fiber rather than blocking the
+# OS thread. Other fibers (siblings under the same `Spawn`, the
+# default `Log` handler, etc.) continue to run while the
+# supervisor waits to re-spawn. This is a notable departure from
+# OTP's behaviour, where the gen_server supervisor's `restart`
+# sleep does block the supervisor process.
+#
+# Backoff is a fixed `Duration` in v1 — no exponential, no
+# jitter. Variable-backoff strategies (Linear, Exponential,
+# DecorrelatedJitter) layer on top by computing the next
+# `Duration` per call and threading it through state; ahu does
+# not commit to a `BackoffStrategy` enum until usage data
+# motivates one.
+#[unstable]
+pub fn with_restart_backoff[e](
+  policy:  RestartPolicy,
+  limit:   RestartLimit,
+  backoff: Duration,
+  body:    (Pid[String]) -> Unit / Actor[String] + Link + e
+) : Unit / Actor[String] + Spawn + Link + Cancel + Clock + e = {
+  let _ = fiber_set_trap_exit(true)
+  let parent = Actor.self()
+  restart_loop_backoff(policy, limit, backoff, body, parent, 0)
 }
 
 # Spawn a cell of state `State` with message type `Msg` under
@@ -159,6 +198,36 @@ fn restart_loop[e](
       Permanent -> restart_loop(policy, limit, body, parent, count + 1)
       Transient -> match reason {
         "Crashed" -> restart_loop(policy, limit, body, parent, count + 1)
+        _         -> ()
+      }
+      Temporary -> ()
+    }
+  }
+}
+
+# Sibling of `restart_loop` that sleeps `backoff` between restarts.
+# Mirrors the policy/limit/Cancel logic exactly; the only difference
+# is the `sleep(backoff)` call before each re-spawn (skipped for the
+# very first spawn).
+fn restart_loop_backoff[e](
+  policy:  RestartPolicy,
+  limit:   RestartLimit,
+  backoff: Duration,
+  body:    (Pid[String]) -> Unit / Actor[String] + Link + e,
+  parent:  Pid[String],
+  count:   Int
+) : Unit / Actor[String] + Spawn + Link + Cancel + Clock + e = {
+  let intensity = match limit { Limit(i) -> i }
+  if count >= intensity {
+    Cancel.raise()
+  } else {
+    if count > 0 { sleep(backoff) } else { () }
+    let _ = fiber_spawn(() => with_mailbox { body(parent) })
+    let reason = Actor.receive()
+    match policy {
+      Permanent -> restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
+      Transient -> match reason {
+        "Crashed" -> restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
         _         -> ()
       }
       Temporary -> ()
