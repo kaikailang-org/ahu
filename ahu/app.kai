@@ -48,7 +48,7 @@
 
 # Run an ahu application root. v1 placeholder — see header.
 #
-# Marked `#[unstable]` for the Anga Roa edition: this is a thin
+# Marked `#[unstable]` for the Hanga Roa edition: this is a thin
 # pass-through pending the Signal-based shutdown integration that
 # kaikai 0.66's R1 reactor (file + sleep + process park) just
 # unblocked. The signature *will* shift when the upgrade lands
