@@ -81,8 +81,16 @@ row variable per row, and it must be the last item.
 ### Layer 3 — Restart helpers (state: **shipped**, ahu/restart.kai)
 
 `RestartPolicy` (`Permanent` / `Transient` / `Temporary`),
-`RestartLimit`, `with_restart`, `restartable_cell`. Default
-limit `5 / 60s`. Spec: `docs/design.md` §*Layer 3*.
+`RestartLimit`, `with_restart`, `with_restart_backoff`,
+`restartable_cell`. Default limit `5 / 60s`. Spec:
+`docs/design.md` §*Layer 3*.
+
+`with_restart_backoff` adds a `Duration` parameter that sleeps
+between restarts via the `Clock` effect (cooperative under
+kaikai 0.66+'s R1 reactor — other fibers keep running during
+the backoff wait, departure from OTP's supervisor-blocks
+behaviour). v1 ships fixed `Duration`; variable strategies
+(Linear / Exponential / DecorrelatedJitter) layer on top.
 
 Tier1 fixtures exercise the three policies under crash and
 escalation conditions. **Green under both backends (C and LLVM)
