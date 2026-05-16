@@ -8,6 +8,29 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`ahu/stream.kai` — Layer 1 lazy streams.** Promotes the
+  Layer 1 component from "designed" to "shipped" for the lazy
+  case (the eager-pipeline case stays convention-over-stdlib).
+  Function-value encoding `Stream[t, e] = () -> Option[t] /
+  Mutable + e`: each pull consumes one element and advances
+  the captured state via `Mutable.ref`. Surface: `from_list`
+  source; `map`, `filter`, `flat_map`, `take` combinators;
+  `foreach`, `fold`, `to_list` sinks. Pipe convention dispatch
+  (kaikai 0.65+) routes `s | f`, `s |? p`, `s || f` through
+  this module by head type. Pure named callbacks (`fn double(n:
+  Int) : Int = n * 2`) compose without `[e] / e` boilerplate —
+  the lane unblocked the day kaikai 0.70.0 closed RFC
+  kaikai#645 (row subsumption for pure callbacks). Marked
+  `#[unstable]` per-declaration for the Hanga Roa edition;
+  ahu's `kai.toml` adds `stream = true` to the `[unstable]`
+  block. Fixture `tests/stream_lazy.kai` exercises four
+  realistic shapes (map/filter/fold, foreach with side
+  effects, take, flat_map). Tier1 grows from 18 to 19
+  fixtures. `docs/roadmap.md` Layer 1 component rewritten;
+  the `from_lines` / `from_listener` follow-ups now describe
+  the actual upstream gap (chunked-read primitives in
+  `fs.file`, not row-poly records).
+
 - **`examples/log_demo/` — cell + `ahu.log` + `with_restart_backoff`
   composed end-to-end.** A small job-runner: a `JobMsg` cell counts
   processed jobs and replies to a `Stats` request; a fragile
