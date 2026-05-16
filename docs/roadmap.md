@@ -188,7 +188,9 @@ Shipped in `examples/`: `counter` (request/reply cell),
 tolerance), `echo` (TCP echo, all layers + NetTcp),
 `backpressured_etl` (`Bounded(c, BlockSender)` mailbox between
 producer and consumer fibres; trace witnesses the producer
-parking when slots fill).
+parking when slots fill), `log_demo` (cell + `ahu.log`
+structured fields + `with_restart_backoff` composed end-to-end;
+shows state-reset between restarts via the logfmt trace).
 
 **Possible additions** (no commitment):
 
