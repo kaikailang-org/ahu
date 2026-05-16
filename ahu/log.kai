@@ -77,7 +77,7 @@
 #   - **Trace context propagation**, **redaction**, **rotation**,
 #     **colour codes** — out of scope at this layer.
 
-# Every `pub` in this module is `#[unstable]` for the Anga Roa
+# Every `pub` in this module is `#[unstable]` for the Hanga Roa
 # edition. The structured-fields surface is v1; the deferrals
 # enumerated above (level filtering, async fan-out, wider field
 # types) will reshape the shape as they land. Consumers that
