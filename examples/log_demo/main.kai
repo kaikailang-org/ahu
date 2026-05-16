@@ -1,0 +1,134 @@
+# examples/log_demo/main.kai — cell + ahu.log + with_restart_backoff
+# composed end-to-end.
+#
+# A small "job runner" that exercises three shipped components at
+# once:
+#
+#   - Layer 2 (cell): a job-counter cell that owns mutable state
+#     (jobs processed so far) and replies to a Stats request.
+#   - Layer 4 (logging): every cell op and every restart cycle
+#     emits a structured logfmt-like line through `ahu.log`. The
+#     fields show how `Field` carries strings, ints, and bools
+#     in one closed sum without a Map[K, V] of heterogeneous
+#     values.
+#   - Layer 3 (restart): the driver is intentionally fragile —
+#     it processes two jobs successfully and then raises Cancel.
+#     `with_restart_backoff(Permanent, Limit(3), millis(1))`
+#     supervises the body, sleeping 1ms between restarts. The
+#     intensity exhausts after three crash cycles and the outer
+#     Cancel handler observes escalation.
+#
+# Why this is a separate example rather than an extension of
+# `resilient_counter`: that example uses `restartable_cell` (the
+# Layer 2+3 composition helper) and prints with raw `Stdout`.
+# This one wires the pieces manually (`with_restart_backoff` +
+# `with_mailbox` + `cell.with_cell`) so the dataflow is visible
+# at the call site, and it routes every observable event through
+# `ahu.log` so the structured-fields surface gets exercised in a
+# realistic shape.
+#
+# Determinism note: the stdlib default `Log` handler prefixes
+# every line with an ISO 8601 timestamp that varies per run. This
+# example installs a captured-to-stdout `Log` handler at the
+# outermost layer so the golden diff stays stable across runs.
+# A real application running under `ahu.app.run_app` would let
+# the default handler print to stderr untouched.
+
+import spawn
+import actor
+import time
+import ahu.cell
+import ahu.restart
+import ahu.log
+
+type JobMsg
+  = Job(Int)                  # process a job with this id
+  | Stats(Pid[JobMsg])        # request: send back current count
+  | StatsReply(Int)            # reply variant; rides the same mailbox
+
+# Cell step: counts processed jobs and replies on demand. Emits a
+# structured log per Job. State is the count.
+# Note: the step's row declares `Cancel` even though `job_step`
+# itself never raises Cancel. `cell.with_cell` requires the step
+# and body rows to share their open row variable (kaikai row
+# system constraint, see docs/known-regressions.md); the driver
+# raises Cancel, so the step's signature has to accept the same
+# row. One-line accommodation, not a redesign of either side.
+fn job_step(processed: Int, msg: JobMsg)
+  : StepResult[Int] / Actor[JobMsg] + Log + Cancel
+= match msg {
+    Job(id) -> {
+      log.info_kv("job processed", [
+        IntField("id", id),
+        IntField("total", processed + 1)
+      ])
+      cell.keep(processed + 1)
+    }
+    Stats(reply_to) -> {
+      Actor.send(reply_to, StatsReply(processed))
+      cell.keep(processed)
+    }
+    StatsReply(_) -> cell.keep(processed)  # incoming reply; ignore
+  }
+
+# Driver: enqueues two jobs, asks for stats, prints the result,
+# then crashes via Cancel. The supervisor will restart it.
+fn fragile_driver(pid: Pid[JobMsg])
+  : Unit / Actor[JobMsg] + Log + Cancel
+= {
+  log.info_kv("driver cycle starting", [])
+  Actor.send(pid, Job(101))
+  Actor.send(pid, Job(102))
+  let me = Actor.self()
+  Actor.send(pid, Stats(me))
+  match Actor.receive() {
+    StatsReply(n) -> {
+      log.info_kv("driver observed stats", [IntField("count", n)])
+    }
+    Job(_)     -> log.warn_kv("driver: unexpected Job echo", [])
+    Stats(_)   -> log.warn_kv("driver: unexpected Stats echo", [])
+  }
+  log.warn_kv("driver crashing", [StringField("reason", "simulated fault")])
+  Cancel.raise()
+}
+
+# Body passed to with_restart_backoff. Opens the cell's mailbox,
+# installs the cell, runs the driver against it.
+fn body(parent: Pid[String])
+  : Unit / Actor[String] + Spawn + Link + Log + Cancel
+= {
+  Link.link(parent)
+  with_mailbox {
+    cell.with_cell(0, job_step, fragile_driver)
+  }
+}
+
+fn supervised() : Unit / Spawn + Link + Cancel + Clock + Log = {
+  log.info_kv("supervisor starting", [
+    StringField("policy", "Permanent"),
+    IntField("limit", 3),
+    IntField("backoff_ms", 1)
+  ])
+  with_mailbox {
+    handle {
+      restart.with_restart_backoff(Permanent, Limit(3), millis(1), body)
+    } with Cancel {
+      raise(resume) -> log.error_kv("supervisor escalated", [
+        StringField("reason", "intensity exhausted")
+      ])
+    }
+  }
+}
+
+fn main() : Int / Spawn + Link + Cancel + Console + Mutable + Clock = {
+  let _ = handle {
+    supervised()
+  } with Log {
+    debug(m, resume) -> { Stdout.print("DEBUG " ++ m); resume(()) }
+    info(m, resume)  -> { Stdout.print("INFO  " ++ m); resume(()) }
+    warn(m, resume)  -> { Stdout.print("WARN  " ++ m); resume(()) }
+    error(m, resume) -> { Stdout.print("ERROR " ++ m); resume(()) }
+    return(x) -> x
+  }
+  0
+}
