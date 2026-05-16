@@ -1,0 +1,44 @@
+# tests/restart_backoff.kai — `with_restart_backoff` smoke test.
+#
+# Permanent policy + body that always crashes + Limit(3): the body
+# runs three times. The first invocation is immediate; the next
+# two each sleep `backoff` (1ms here for tier1 wall time) before
+# re-spawning. The third would exceed intensity, so
+# with_restart_backoff calls Cancel.raise() — the outer Cancel
+# handler observes escalation.
+#
+# Coverage:
+#   - `with_restart_backoff` accepts a `Duration` and threads it
+#     into restart_loop_backoff.
+#   - The supervisor row gains `Clock`; the default Clock handler
+#     (auto-installed via the `Clock` row entry) drives the sleep
+#     without ceremony.
+#   - Escalation semantics match `with_restart` exactly — the only
+#     observable difference under tier1 is that body runs 1..3 are
+#     spaced by `backoff` wall time (verified manually; this
+#     fixture asserts on the trace order, not on the elapsed time
+#     between prints, which would flake on loaded CI).
+
+import actor
+import spawn
+import time
+import ahu.restart
+
+fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = {
+  Link.link(parent)
+  Stdout.print("body: ran (will crash)")
+  Cancel.raise()
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Console + Clock = {
+  handle {
+    restart.with_restart_backoff(Permanent, Limit(3), millis(1), body)
+  } with Cancel {
+    raise(resume) -> Stdout.print("supervisor: escalated")
+  }
+}
+
+fn main() : Int / Console + Spawn + Link + Clock = {
+  with_mailbox { run() }
+  0
+}
