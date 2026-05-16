@@ -8,6 +8,25 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`restart.with_restart_backoff` — sleep `Duration` between
+  restarts.** Rate-limits a crashloop without changing the
+  policy semantics. First body invocation is immediate; subsequent
+  re-spawns wait `backoff` after the termination message lands.
+  Row gains `Clock`: `with_restart_backoff(policy, limit,
+  backoff, body) : Unit / Actor[String] + Spawn + Link + Cancel
+  + Clock + e`. Why a separate function and not a `backoff:
+  Option[Duration]` on `with_restart` — callers that don't need
+  backoff stay clear of the `Clock` cost in their signature.
+  Cooperative under kaikai 0.66+'s R1 reactor (the `Clock.sleep`
+  parks the fiber rather than blocking the OS thread; other
+  fibers continue to run during backoff). v1 ships fixed
+  `Duration`; variable backoff strategies (Linear, Exponential,
+  DecorrelatedJitter) layer on top by threading the next
+  `Duration` per call. Marked `#[unstable]` for the Hanga Roa
+  edition. Fixture `tests/restart_backoff.kai`; tier1 grows
+  from 16 to 17 fixtures. `docs/roadmap.md` Layer 3 surface
+  list and component description updated.
+
 - **Hanga Roa edition contract.** `kai.toml` now declares
   `edition = "hanga-roa"`, pinning ahu to kaikai's first post-
   Tongariki edition (kaikai 0.63 adopted editions; 0.65 shipped
