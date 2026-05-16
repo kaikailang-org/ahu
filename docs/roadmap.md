@@ -24,31 +24,36 @@ release that breaks a runtime path is the canonical case).
 
 ## Components
 
-### Layer 1 — Streams (state: **designed**, no ahu code)
+### Layer 1 — Streams (state: **shipped**, ahu/stream.kai)
 
-The pipeline shape ships against kaikai's stdlib + language
-sugars (`[a..b]`, `|`, `|>`, `list.map` / `filter` / `foldl`,
-each with row-poly callbacks). ahu's contribution at this
-layer is convention plus the reference fixture in
-`tests/stream_pipeline.kai`. No `ahu/stream.kai` exists and
-none is planned for eager pipelines — see `docs/design.md`
-§*Layer 1*.
+Two complementary shapes:
 
-**Possible follow-ups** (no commitment):
+- **Eager pipelines over `[T]`** still ship against kaikai's
+  stdlib + language sugars (`[a..b]`, `|`, `|>`, `list.map` /
+  `filter` / `foldl`). ahu adds zero code for this case — the
+  reference fixture is `tests/stream_pipeline.kai`.
+- **Lazy streams** ship in `ahu/stream.kai` via the function-
+  value encoding `Stream[t, e] = () -> Option[t] / Mutable + e`.
+  Surface: `from_list`, `map`, `filter`, `flat_map`, `take`,
+  `foreach`, `fold`, `to_list`. Pipe convention dispatch
+  (`s | f` / `s |? p` / `s || f`, kaikai 0.65+) routes through
+  this module by head type. Pure named callbacks compose
+  without `[e] / e` boilerplate thanks to row auto-
+  generalization (kaikai 0.70.0 / #645). Spec: `ahu/stream.kai`
+  header.
 
-- **Lazy / unbounded sources** as a dedicated `ahu/source.kai`
-  module — `from_listener(port)`, `tick(every)`,
-  `from_websocket(ws)`. Needs either upstream support for
-  row-poly type parameters in records (so `Source[T, e]`
-  records become expressible) or a function-value-based
-  encoding. Out of reach until kaikai's row polymorphism
-  story closes.
+**Possible follow-ups**:
+
+- **Lazy file / network sources** — `from_lines(path)`,
+  `from_listener(port)`, `from_websocket(ws)`. Need chunked-
+  read primitives upstream (`fs.file` today only ships
+  `file_read_file` which materialises the whole file). The
+  reactor (R1+R2+R3 shipped) gives the parking infrastructure;
+  what's missing is the primitive read shape.
 - **Stream extensions** — windowing, grouping, broadcast/fanout,
   error-recovery combinators. `window` / `throttle` would lean
-  on kaikai's `Clock` default handler (now in
-  `stdlib/time.kai`). `recover_with` would carry a
-  `PipelineError` union (kaikai's union types make this
-  expressible).
+  on the `Clock` effect. `recover_with` would carry a
+  `PipelineError` union.
 
 ### Layer 2 — Cells (state: **shipped**, ahu/cell.kai)
 
