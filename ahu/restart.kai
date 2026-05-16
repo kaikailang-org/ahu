@@ -58,7 +58,7 @@ import actor
 import spawn
 import ahu.cell
 
-# Every `pub` in this module is `#[unstable]` for the Anga Roa
+# Every `pub` in this module is `#[unstable]` for the Hanga Roa
 # edition. Restart helpers still iterate: the planned `with_restart`
 # backoff variant (now expressible thanks to kaikai 0.66's reactor
 # R1), refinements to escalation semantics, and the OTP-style
