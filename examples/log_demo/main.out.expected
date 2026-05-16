@@ -1,0 +1,17 @@
+INFO  supervisor starting policy=Permanent limit=3 backoff_ms=1
+INFO  driver cycle starting
+INFO  job processed id=101 total=1
+INFO  job processed id=102 total=2
+INFO  driver observed stats count=2
+WARN  driver crashing reason=simulated fault
+INFO  driver cycle starting
+INFO  job processed id=101 total=1
+INFO  job processed id=102 total=2
+INFO  driver observed stats count=2
+WARN  driver crashing reason=simulated fault
+INFO  driver cycle starting
+INFO  job processed id=101 total=1
+INFO  job processed id=102 total=2
+INFO  driver observed stats count=2
+WARN  driver crashing reason=simulated fault
+ERROR supervisor escalated reason=intensity exhausted

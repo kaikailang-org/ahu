@@ -8,6 +8,23 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`examples/log_demo/` — cell + `ahu.log` + `with_restart_backoff`
+  composed end-to-end.** A small job-runner: a `JobMsg` cell counts
+  processed jobs and replies to a `Stats` request; a fragile
+  driver processes two jobs, asks for stats, then raises
+  `Cancel.raise()` to simulate a fault. The supervisor wraps
+  everything in `with_restart_backoff(Permanent, Limit(3),
+  millis(1), body)` and an outer `handle ... with Cancel` to
+  observe escalation. Every cell op and every restart cycle
+  emits a structured logfmt-like line through `ahu.log` (a
+  captured-to-stdout `Log` handler at the outermost layer keeps
+  the golden deterministic). The output trace witnesses the
+  state-reset semantics of restartable cells (each cycle reads
+  `total=1` then `total=2`, never accumulating across crashes)
+  and the escalation path when the intensity budget exhausts.
+  Tier1 grows from 17 to 18 fixtures. `docs/roadmap.md`
+  reference-applications list updated.
+
 - **`restart.with_restart_backoff` — sleep `Duration` between
   restarts.** Rate-limits a crashloop without changing the
   policy semantics. First body invocation is immediate; subsequent
