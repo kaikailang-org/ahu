@@ -1,0 +1,64 @@
+# tests/stream_lazy.kai — ahu Layer 1 lazy streams smoke test.
+#
+# Coverage:
+#
+#   - `from_list` as the canonical in-memory source.
+#   - Combinators in a realistic pipeline shape: map → filter →
+#     fold for the numeric case; map + take for the bounded case;
+#     flat_map for the per-element expansion case.
+#   - `foreach` driving side effects through the stream.
+#   - `to_list` materialising back for assertion-friendly output.
+#   - Pure named callbacks (`fn double(n) : Int = n * 2`,
+#     `fn positive(n) : Bool = n > 0`) compose without `[e] / e`
+#     boilerplate — the test would have failed against kaikai
+#     0.69.x for the row-subsumption reason that motivated
+#     issue #645, fixed in 0.70.0.
+#
+# Determinism: every observable line is printed eagerly via
+# `foreach` or printed once after a `fold` / `to_list` returns
+# the accumulator. No `Clock`, no `Spawn`, no scheduling
+# uncertainty.
+
+import ahu.stream
+
+fn double(n: Int) : Int = n * 2
+fn positive(n: Int) : Bool = n > 0
+fn shift(n: Int) : Int = n - 4
+
+fn add(acc: Int, x: Int) : Int = acc + x
+
+fn pair(n: Int) : Stream[Int, e] = stream.from_list([n, n + 100])
+
+fn print_int(n: Int) : Unit / Stdout = Stdout.print(int_to_string(n))
+
+fn main() : Int / Console + Mutable = {
+  # Case 1: map + filter + fold with pure named callbacks.
+  let s1 = stream.from_list([1, 2, 3, 4, 5, 6])
+  let total = stream.fold(
+    stream.filter(stream.map(s1, double), positive),
+    0,
+    add
+  )
+  Stdout.print("case1 total=" ++ int_to_string(total))   # 2+4+6+8+10+12 = 42
+
+  # Case 2: filter drops some elements.
+  let s2 = stream.from_list([1, 2, 3, 4, 5, 6, 7, 8])
+  let shifted_pos = stream.filter(stream.map(s2, shift), positive)
+  stream.foreach(shifted_pos, print_int)                  # 1 2 3 4
+
+  # Case 3: take bounds an otherwise-infinite-shaped pipeline.
+  # (from_list is finite here, but the same pattern bounds a
+  # truly unbounded source once those exist.)
+  let s3 = stream.from_list([10, 20, 30, 40, 50])
+  let first_three = stream.take(s3, 3)
+  let xs = stream.to_list(first_three)
+  Stdout.print("case3 list_length=" ++ int_to_string(list.length(xs)))   # 3
+
+  # Case 4: flat_map expands each element to a 2-element substream.
+  let s4 = stream.from_list([1, 2, 3])
+  let expanded = stream.flat_map(s4, pair)
+  let xs2 = stream.to_list(expanded)
+  Stdout.print("case4 list_length=" ++ int_to_string(list.length(xs2))) # 6
+
+  0
+}
