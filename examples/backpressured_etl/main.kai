@@ -16,14 +16,14 @@
 # `spawn_actor_policy` is an explicit upstream follow-up
 # (`stdlib/actor.kai` §`spawn_actor` v1 simplification). Until
 # that lands, ahu's back-pressure story uses the underlying
-# `with_mailbox_policy` + `fiber_spawn` shape directly. The
+# `with_mailbox_policy` + `spawn` shape directly. The
 # example also doubles as documentation for that gap.
 #
 # Coverage:
 #   - `with_mailbox_policy(Bounded(2, BlockSender))` — the
 #     mailbox installed on the main fiber accepts at most two
 #     queued messages before the next `Actor.send` parks.
-#   - `fiber_spawn` for the producer side; the producer's
+#   - `spawn` for the producer side; the producer's
 #     `Actor.send` calls go through main's mailbox, so
 #     back-pressure parks the producer fiber when the slots are
 #     full.
@@ -65,7 +65,7 @@ fn consume_loop(i: Int) : Unit / Actor[String] + Console = {
 fn run() : Unit / Actor[String] + Spawn + Console = {
   let me = Actor.self()
   let lines = ["alpha", "bravo", "charlie", "delta", "echo"]
-  let _ = fiber_spawn(() => produce_loop(me, lines, 1))
+  let _ = spawn(() => produce_loop(me, lines, 1))
   consume_loop(1)
 }
 
