@@ -90,7 +90,7 @@ pub fn with_restart[e](
   limit:  RestartLimit,
   body:   (Pid[String]) -> Unit / Actor[String] + Link + e
 ) : Unit / Actor[String] + Spawn + Link + Cancel + e = {
-  let _ = fiber_set_trap_exit(true)
+  let _ = set_trap_exit(true)
   let parent = Actor.self()
   restart_loop(policy, limit, body, parent, 0)
 }
@@ -128,7 +128,7 @@ pub fn with_restart_backoff[e](
   backoff: Duration,
   body:    (Pid[String]) -> Unit / Actor[String] + Link + e
 ) : Unit / Actor[String] + Spawn + Link + Cancel + Clock + e = {
-  let _ = fiber_set_trap_exit(true)
+  let _ = set_trap_exit(true)
   let parent = Actor.self()
   restart_loop_backoff(policy, limit, backoff, body, parent, 0)
 }
@@ -192,7 +192,7 @@ fn restart_loop[e](
   if count >= intensity {
     Cancel.raise()
   } else {
-    let _ = fiber_spawn(() => with_mailbox { body(parent) })
+    let _ = spawn(() => with_mailbox { body(parent) })
     let reason = Actor.receive()
     match policy {
       Permanent -> restart_loop(policy, limit, body, parent, count + 1)
@@ -222,7 +222,7 @@ fn restart_loop_backoff[e](
     Cancel.raise()
   } else {
     if count > 0 { sleep(backoff) } else { () }
-    let _ = fiber_spawn(() => with_mailbox { body(parent) })
+    let _ = spawn(() => with_mailbox { body(parent) })
     let reason = Actor.receive()
     match policy {
       Permanent -> restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
