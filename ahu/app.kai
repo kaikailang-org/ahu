@@ -6,29 +6,14 @@
 # application. **The v1 form is a thin pass-through**: it calls
 # `root()` and returns whatever `root` returns.
 #
-# Why a placeholder, not the Signal-based shape sketched in
-# `kaikai/docs/effects-stdlib.md` §Signal:
+# Status: the reactor (R1 file/sleep/process, R2 TCP, R3 stdin)
+# has shipped upstream and `Signal.await()` now parks the calling
+# fiber instead of blocking the OS thread. The Signal-based
+# graceful-shutdown upgrade sketched below is the next lane for
+# `run_app` itself; the pass-through stays in place until that
+# lane lands so the API does not shift mid-flight.
 #
-#   The doc's "Typical use" pattern (spawn root, park on
-#   Signal.await(), cancel root on signal) does not work
-#   under the v1 Signal effect because `Signal.await()`
-#   blocks the OS thread — *"Other fibers cannot make
-#   progress while it is parked"* (effects-stdlib.md). A
-#   spawned root fiber that itself parks on a syscall
-#   (NetTcp.accept, blocking recv, etc.) cannot run while
-#   main is parked on Signal.await. Either the workers run
-#   OR Signal.await blocks; not both. Reactor-driven
-#   non-blocking integration with the Spawn scheduler is
-#   m8.x scope (`docs/effects-stdlib.md` §Signal v1
-#   limitations).
-#
-#   ahu's `run_app` ships as a placeholder so user code can
-#   wrap its main entry point in `app.run_app(root)` today
-#   and inherit the Signal-based graceful-shutdown behaviour
-#   transparently when kaikai m8.x's reactor lands. The
-#   API does not change; only the implementation.
-#
-# Until then, signal handling is best-effort:
+# v1 signal-handling behaviour (pass-through):
 #   - Ctrl-C delivers SIGINT with default disposition →
 #     immediate process termination. Cell `Cancel` handlers
 #     do NOT run.
@@ -39,22 +24,25 @@
 #        coordinate with their own workers using domain-
 #        specific Stop messages.
 #
-# When kaikai's reactor ships, `run_app` upgrades to:
+# Planned upgrade (post-pass-through):
 #   1. Subscribe to SIGINT + SIGTERM via Signal.on.
 #   2. Spawn `root` as a child fiber; root keeps running.
 #   3. Multiplex: park on signal-or-root-completion.
 #   4. On signal: cancel root → its Cancel handlers run.
 #   5. Unsubscribe from signals; return cleanly.
+# Wrapping `main` in `run_app` today is the migration path: when
+# the upgrade lands, the wrapped main inherits graceful shutdown
+# without a signature change.
 
-# Run an ahu application root. v1 placeholder — see header.
+# Run an ahu application root. v1 pass-through — see header.
 #
-# Marked `#[unstable]` for the Hanga Roa edition: this is a thin
-# pass-through pending the Signal-based shutdown integration that
-# kaikai 0.66's R1 reactor (file + sleep + process park) just
-# unblocked. The signature *will* shift when the upgrade lands
-# — the whole point of `run_app` is the user's main wraps in it
-# today and inherits the new behaviour transparently when this
-# module catches up. The `#[unstable]` annotation is the
-# disclosure to consumers that this catch-up is still pending.
+# Marked `#[unstable]` for the Hanga Roa edition: the body is
+# still a pass-through pending the Signal-based shutdown upgrade
+# (the reactor infrastructure it depends on has shipped; the
+# upgrade itself is the next lane on this module). The signature
+# does not change between v1 and the upgrade — the
+# `#[unstable]` annotation is the disclosure to consumers that
+# the body's behaviour will gain graceful shutdown without an
+# API break.
 #[unstable]
 pub fn run_app[e](root: () -> Unit / e) : Unit / e = root()
