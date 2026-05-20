@@ -20,7 +20,7 @@
 # The kaikai primitives:
 #   `NetTcp.listen / accept / send / recv / close` — kaikai 0.33+
 #   `Signal.on / await / off` — kaikai 0.36+ (issue #107)
-#   `fiber_set_trap_exit / Link.link` — kaikai m8.x scheduler
+#   `set_trap_exit / Link.link` — kaikai m8.x scheduler
 #
 # Test it locally:
 #   $ make build/echo
