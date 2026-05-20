@@ -64,12 +64,14 @@
 #     that has not been designed upstream. Filtering today belongs
 #     in the user's own `Log` handler, where the upstream/downstream
 #     boundary is unambiguous.
-#   - **Async fan-out to multiple sinks** (stderr + `fs.file`). The
-#     `fs.file.append` API is sync today; a useful async fan-out
-#     needs the kaikai m8.x reactor for non-blocking file writes
-#     and timer-driven flushes. Sync fan-out is straightforward to
-#     write at the user's `Log` handler (one `Log` op fans out to
-#     two prints); ahu does not need to wrap that.
+#   - **Async fan-out to multiple sinks** (stderr + `fs.file`).
+#     The reactor (R1 file/sleep/process) ships the parking
+#     infrastructure, but `fs.file.append` itself is still a
+#     synchronous surface; async fan-out needs either an async
+#     write surface or a per-sink writer fiber the user assembles
+#     by hand. Sync fan-out is straightforward to write at the
+#     user's `Log` handler (one `Log` op fans out to two prints);
+#     ahu does not need to wrap that.
 #   - **Timestamps via `Clock`**. The stdlib default `Log` handler
 #     already prefixes ISO 8601 UTC timestamps; user handlers that
 #     want their own format can call `time.now()` directly. ahu
