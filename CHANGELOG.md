@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **Doc sweep — align with the kaikai reactor (R1+R2+R3
+  shipped).** The reactor has landed upstream in three phases:
+  R1 (file + sleep + process), R2 (TCP sockets), R3 (stdin).
+  After R2, every blocking `NetTcp` op parks the fiber instead
+  of the OS thread, which removes the OS-thread-blocking cliff
+  that several ahu module headers and docs were still pointing
+  to as a future event. Four sites updated, no code change:
+  `ahu/app.kai` header (drops the "Signal.await blocks the OS
+  thread" framing; rewrites the planned-upgrade block as the
+  next lane on this module, not a future runtime feature);
+  `ahu/log.kai` async-fan-out follow-up (reactor is no longer
+  the blocker — the blocker is the absence of an async
+  `fs.file.append` surface); `docs/design.md` §*Open watch
+  items* item 3 closed (was "OS-thread-blocking primitives",
+  now reads "Closed"); `docs/roadmap.md` log async-fan-out
+  bullet matches `log.kai`. No `pub` surface changes, no
+  fixture changes, tier1 stays 19/19 green.
+
 ### Added
 
 - **`ahu/stream.kai` — Layer 1 lazy streams.** Promotes the

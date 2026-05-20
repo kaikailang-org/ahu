@@ -172,9 +172,12 @@ half. Spec: `ahu/log.kai` header.
   been designed upstream. Filtering today belongs in the user's
   own `Log` handler.
 - **Async fan-out to multiple sinks** (stderr + `fs.file`).
-  Depends on the kaikai m8.x reactor for non-blocking file
-  writes; sync fan-out is straightforward in a user `Log`
-  handler.
+  The reactor (R1 file/sleep/process) ships the parking
+  infrastructure, but `fs.file.append` itself is still a
+  synchronous surface; async fan-out needs either an async
+  write surface or a per-sink writer fiber the user
+  assembles by hand. Sync fan-out is straightforward in a
+  user `Log` handler.
 - **Wider field types** — `FloatField`, `BytesField`, etc. One-
   line additions to the `Field` sum once a real consumer needs
   them.
