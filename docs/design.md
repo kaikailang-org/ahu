@@ -845,9 +845,11 @@ work tracked in `docs/roadmap.md`:
    `time.now()` / `time.monotonic()` / `time.sleep(d)` work
    without the caller installing a handler. **Unlocks**:
    `with_restart` with backoff (sleep between retries).
-   **Caveat**: `sleep_ns` blocks the OS thread under v1's
-   inline-eager scheduler — same OS-thread-blocking cliff as
-   `Signal.await()`. See watch item §*Open watch items* below.
+   The OS-thread-blocking cliff that was open at first
+   landing has since closed: kaikai's R1 reactor (file +
+   sleep + process) parks the fiber on `Clock.sleep`
+   instead of the OS thread, so other fibers under the
+   same scheduler keep running during a backoff.
 4. **`m[k]` indexing sugar + `Map[K, V]` AVL carrier.**
    `e1[e2]` over `Map[K, V]` lowers to `map_get(e1, e2) :
    Option[V]`; lookup/insert/remove are now O(log n). The
@@ -931,16 +933,16 @@ that touches the relevant component:
    wraps `Spawn` and observes child terminations through
    `Link`.
 3. **OS-thread-blocking primitives under v1 scheduler.**
-   `Signal.await()` and `time.sleep(d)` both park the OS
-   thread under the inline-eager scheduler. While parked, no
-   other fibers run, and a `Cancel` delivered to the parked
-   fiber is observed only after wake-up. ahu's `run_app` is a
-   pass-through today for this reason; any future
-   `with_restart_backoff` helper using `time.sleep` between
-   retries inherits the same constraint. Closes when kaikai
-   m8.x ships the cooperative scheduler with timer-wheel +
-   reactor integration so both primitives become
-   `Cancel`-aware and yield through `Spawn.yield`.
+   *Closed.* The reactor shipped in three phases — R1
+   (file + sleep + process), R2 (TCP sockets), R3 (stdin)
+   — and now parks the fiber rather than the OS thread on
+   `Clock.sleep`, `Signal.await`, blocking file I/O, and
+   the six `NetTcp` ops. `with_restart_backoff` already
+   exercises this: the example fixture interleaves with
+   other fibers during the backoff window. ahu's `run_app`
+   stays pass-through pending its own Signal-multiplex
+   upgrade — the constraint is no longer the scheduler,
+   it is that the upgrade has not been written.
 4. **Unified `ChildOutcome[E]` over Link/trap-exit + typed
    error result.** Today a parent observes a child through
    two distinct channels: `"Normal"` / `"Crashed"` strings
