@@ -69,7 +69,7 @@ fn root() : Unit / Spawn + Link + Cancel + Console = {
   }
 }
 
-fn main() : Int / Spawn + Cancel + Console + Link = {
+fn main() : Int / Spawn + Cancel + Console + Link + Signal = {
   app.run_app(root)
   0
 }
