@@ -142,10 +142,13 @@ fn root() : Unit / Spawn + Link + Cancel + NetTcp + Console = {
   }
 }
 
-# Top: hand root to run_app. v1 is a thin pass-through; future
-# kaikai reactor work upgrades it to Signal-based graceful
-# shutdown without API change.
-fn main() : Int / Spawn + Cancel + Console + NetTcp + Link = {
+# Top: hand root to run_app. Since kaikai 0.80.0 (R4 reactor),
+# `run_app` spawns root inside a nursery with a sibling
+# signal-waiter; SIGINT/SIGTERM cancels root so its Cancel
+# handlers (mailbox close, restart unwind) run before exit.
+# The `Signal` row entry is the disclosure to the typer that
+# the default Signal handler is installed around `main`.
+fn main() : Int / Spawn + Cancel + Console + NetTcp + Link + Signal = {
   app.run_app(root)
   0
 }
