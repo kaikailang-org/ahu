@@ -1,0 +1,33 @@
+# tests/app_run_app_natural_exit.kai — verify `app.run_app`
+# returns when the root fiber completes normally (no signal
+# delivered).
+#
+# Coverage:
+#   - `run_app` spawns root inside its nursery and the await on
+#     root resolves cleanly when root returns.
+#   - The sibling signal-waiter, which is parked in
+#     `Signal.await()`, is cancelled by the nursery on exit
+#     without leaking — the program returns to its caller and
+#     prints the "after run_app" line.
+#
+# This fixture cannot deliver an actual signal in a hermetic
+# golden setup (no harness, just `diff` against the .expected
+# file), so the signal-cancel path is exercised by the upstream
+# kaikai `demos/signal_concurrent` proof. Here we lock down the
+# natural-exit path, which is the second of `run_app`'s two
+# behaviours.
+
+import spawn
+import ahu.app
+
+fn root() : Unit / Stdout = {
+  Stdout.print("root: enter")
+  Stdout.print("root: exit")
+}
+
+fn main() : Int / Spawn + Signal + Cancel + Stdout = {
+  Stdout.print("before run_app")
+  app.run_app(root)
+  Stdout.print("after run_app")
+  0
+}

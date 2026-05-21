@@ -8,6 +8,29 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Changed
 
+- **`ahu/app.kai` — `run_app` upgrades from pass-through to
+  Signal-multiplex graceful shutdown.** Now that the kaikai
+  R4 reactor (lnds/kaikai#671, shipped in 0.80.0) parks
+  `Signal.await()` fiber-aware, `run_app` can spawn `root`
+  inside a nursery alongside a sibling signal-waiter that
+  subscribes to SIGINT + SIGTERM and cancels root on signal.
+  Root's `Cancel` handlers — including cell `cell_done`
+  cleanup, `with_restart` unwind, and any user-installed
+  `Cancel.try` handlers — run before the process exits.
+  Signature unchanged at the call site (`app.run_app(root)`),
+  but the row gains `Spawn + Signal + Cancel`; callers must
+  add `/ Signal` to `main`'s effect row so the runtime
+  installs the default Signal handler around `main`. Three
+  in-tree examples updated (`echo`, `resilient_counter`,
+  plus the `echo` header). New fixture
+  `tests/app_run_app_natural_exit.kai` locks down the
+  natural-exit path (root returns normally, the sibling
+  signal-waiter is cancelled cleanly by the nursery on
+  exit); the signal-cancel path is exercised by the
+  upstream kaikai `demos/signal_concurrent` proof. tier1
+  grows from 19 to 20 fixtures. `#[unstable]` annotation
+  stays — the multiplex behaviour is new in this release.
+
 - **Doc sweep — align with the kaikai reactor (R1+R2+R3
   shipped).** The reactor has landed upstream in three phases:
   R1 (file + sleep + process), R2 (TCP sockets), R3 (stdin).
