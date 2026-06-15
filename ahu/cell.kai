@@ -121,13 +121,13 @@ pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 # `Pid[Msg]` typing of `Actor.send` makes this not implementable
 # at user-level today.
 #
-# Marked `#[unstable]` for the Hanga Roa edition: the planned
-# `ask_timeout` follow-up (depends on the `Clock` effect) and the
-# eventual cross-mailbox variant (depends on upstream reply-channel
-# primitive) may shift this signature. The cell-loop core
-# (`with_cell` / `keep` / `cell_done` / `StepResult`) stays under
-# the edition contract.
-#[unstable]
+# Stable under the Hanga Roa edition. The planned `ask_timeout`
+# follow-up (depends on the `Clock` effect) and the eventual
+# cross-mailbox variant (depends on an upstream reply-channel
+# primitive) land as additive helpers, not as changes to this
+# signature. The cell-loop core (`with_cell` / `keep` /
+# `cell_done` / `StepResult`) is likewise under the edition
+# contract.
 pub fn ask[Msg, e](
   cell_pid:      Pid[Msg],
   build_request: (Pid[Msg]) -> Msg

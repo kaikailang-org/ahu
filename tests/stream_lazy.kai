@@ -1,25 +1,28 @@
 # tests/stream_lazy.kai — ahu Layer 1 lazy streams smoke test.
 #
+# ahu ships no stream-layer code: the lazy stream lives in the
+# kaikai stdlib (`import stream`, issue #801). ahu's Layer 1
+# contribution is convention plus this fixture demonstrating the
+# canonical shape with effectful callbacks. This test pins the
+# stdlib stream surface ahu depends on.
+#
 # Coverage:
 #
 #   - `from_list` as the canonical in-memory source.
 #   - Combinators in a realistic pipeline shape: map → filter →
 #     fold for the numeric case; map + take for the bounded case;
 #     flat_map for the per-element expansion case.
-#   - `foreach` driving side effects through the stream.
+#   - `each` driving side effects through the stream.
 #   - `to_list` materialising back for assertion-friendly output.
 #   - Pure named callbacks (`fn double(n) : Int = n * 2`,
 #     `fn positive(n) : Bool = n > 0`) compose without `[e] / e`
-#     boilerplate — the test would have failed against kaikai
-#     0.69.x for the row-subsumption reason that motivated
-#     issue #645, fixed in 0.70.0.
+#     boilerplate.
 #
 # Determinism: every observable line is printed eagerly via
-# `foreach` or printed once after a `fold` / `to_list` returns
-# the accumulator. No `Clock`, no `Spawn`, no scheduling
-# uncertainty.
+# `each` or printed once after a `fold` / `to_list` returns the
+# accumulator. No `Clock`, no `Spawn`, no scheduling uncertainty.
 
-import ahu.stream
+import stream
 
 fn double(n: Int) : Int = n * 2
 fn positive(n: Int) : Bool = n > 0
@@ -31,7 +34,7 @@ fn pair(n: Int) : Stream[Int, e] = stream.from_list([n, n + 100])
 
 fn print_int(n: Int) : Unit / Stdout = Stdout.print(int_to_string(n))
 
-fn main() : Int / Console + Mutable = {
+fn main() : Int / Console = {
   # Case 1: map + filter + fold with pure named callbacks.
   let s1 = stream.from_list([1, 2, 3, 4, 5, 6])
   let total = stream.fold(
@@ -44,7 +47,7 @@ fn main() : Int / Console + Mutable = {
   # Case 2: filter drops some elements.
   let s2 = stream.from_list([1, 2, 3, 4, 5, 6, 7, 8])
   let shifted_pos = stream.filter(stream.map(s2, shift), positive)
-  stream.foreach(shifted_pos, print_int)                  # 1 2 3 4
+  stream.each(shifted_pos, print_int)                     # 1 2 3 4
 
   # Case 3: take bounds an otherwise-infinite-shaped pipeline.
   # (from_list is finite here, but the same pattern bounds a

@@ -3,15 +3,3 @@ version = "0.1.0"
 edition = "hanga-roa"
 
 [dependencies]
-
-# ahu's own tier1 fixtures import ahu's #[unstable] decls
-# (cell.ask, restart.*, log.*, stream.*, app.run_app). Opting
-# in here acknowledges the disclosure for the in-tree fixtures
-# so the tier0 / tier1 build is warning-free. Downstream
-# consumers do the same in their own kai.toml.
-[unstable]
-cell    = true
-restart = true
-log     = true
-stream  = true
-app     = true

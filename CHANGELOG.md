@@ -4,9 +4,40 @@ All notable changes to ahu are tracked in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres
 to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
-## [Unreleased]
+## [0.1.0] - 2026-06-14
+
+### Removed
+
+- **`ahu/stream.kai` deleted — Layer 1 now consumes the kaikai
+  stdlib `stream` directly.** The kaikai stdlib grew its own
+  lazy stream (`Stream[t, e]`, push-carrier recipe — issue #801),
+  which made ahu's pull/cursor re-implementation a duplicate of an
+  upstream primitive. Re-implementing a stdlib primitive violates
+  ahu's "do not re-design kaikai primitives" rule, and `design.md`
+  §Layer 1 already stated ahu ships no stream-layer code. The
+  module is removed; `tests/stream_lazy.kai` is migrated to
+  `import stream` (`foreach` → `each`) and pins the stdlib stream
+  surface ahu depends on. `design.md` §Layer 1 / §Decision 2,
+  the README status table, and the `[unstable]` opt-in in
+  `kai.toml` are updated to match. Output goldens unchanged;
+  tier1 stays at 20 fixtures.
 
 ### Changed
+
+- **Public surface declared stable under the Hanga Roa edition.**
+  Every `#[unstable]` annotation is removed from `ahu/cell.kai`,
+  `ahu/log.kai`, `ahu/restart.kai`, and `ahu/app.kai`, and the
+  `[unstable]` opt-in block is dropped from `kai.toml`. ahu's
+  `pub` surface (`cell` including `ask`, `restart.*`, `log.*`,
+  `app.run_app`) is now committed under the edition contract;
+  consumers import it warning-free with no `[unstable]` opt-in.
+  Planned follow-ups (`cell.ask_timeout`, cross-mailbox `ask`,
+  `with_restart` backoff, wider log field types) land as additive
+  `feat:` releases, not breaking changes. Module headers, the
+  README stability section, and the historical
+  `docs/hanga-roa-impacts-for-ahu.md` briefing are updated to
+  reflect the reversal of the original "mark everything unstable"
+  recommendation.
 
 - **`ahu/app.kai` — `run_app` upgrades from pass-through to
   Signal-multiplex graceful shutdown.** Now that the kaikai
@@ -28,8 +59,9 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   signal-waiter is cancelled cleanly by the nursery on
   exit); the signal-cancel path is exercised by the
   upstream kaikai `demos/signal_concurrent` proof. tier1
-  grows from 19 to 20 fixtures. `#[unstable]` annotation
-  stays — the multiplex behaviour is new in this release.
+  grows from 19 to 20 fixtures. (The `#[unstable]` annotation
+  this release originally carried has since been removed — see
+  the 0.1.0 stability entry above.)
 
 - **Doc sweep — align with the kaikai reactor (R1+R2+R3
   shipped).** The reactor has landed upstream in three phases:
