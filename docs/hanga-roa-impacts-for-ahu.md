@@ -1,5 +1,20 @@
 # Anga Roa decisions affecting ahu — pre-2026-05-21 briefing
 
+> **Status (superseded in part):** This is a historical briefing.
+> Two of its recommendations have since been reversed and should
+> not be acted on:
+> - The advice to mark ahu's `pub` surface `#[unstable]` (§2, §6,
+>   §8) was applied and then **removed** — ahu's surface is now
+>   declared stable under the Hanga Roa edition; there are no
+>   `#[unstable]` decls and no `[unstable]` opt-in in `kai.toml`.
+> - The plan for an ahu-owned stream module (`ahu/stream.kai`,
+>   `Source`/`Flow`/`Sink`) was dropped once the kaikai stdlib grew
+>   its own `stream` (issue #801). ahu consumes the stdlib stream
+>   directly; see `docs/design.md` §Layer 1 / §Decision 2.
+>
+> The rest of the briefing (editions, pipe-signature audit, backend
+> parity CI, HTTP server) remains accurate as background.
+
 This document covers the kaikai decisions taken between 2026-05-14 and the Anga Roa cutover (planned 2026-05-21) that change how `ahu` declares its public surface, consumes the language, or ships against the kaikai compiler. Hand this to ahu's maintainers (you, in another seat) so the Tongariki → Anga Roa transition on the ahu side is informed, not surprise-driven.
 
 The list is grouped by "what you have to change in ahu" vs "what the kaikai compiler will do differently". Each item links to the kaikai issue + PR + relevant doc.

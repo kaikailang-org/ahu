@@ -79,11 +79,10 @@ import spawn
 # `main`'s row (the kaikai runtime installs default handlers
 # for all three around `main` when its row mentions them).
 #
-# Marked `#[unstable]` for the Hanga Roa edition. The signature
-# is stable across the pre-R4 → R4 upgrade; the body changed
-# from a pass-through to the multiplex. The annotation stays
-# while the multiplex behaviour is new in this release.
-#[unstable]
+# Stable under the Hanga Roa edition. The signature held across
+# the pre-R4 → R4 upgrade; the body changed from a pass-through
+# to the multiplex, but the committed surface is the signature,
+# not the body, and it does not move within the edition.
 pub fn run_app[e](root: () -> Unit / e) : Unit / Spawn + Signal + Cancel + e =
   nursery { n ->
     let r = n.spawn(root)

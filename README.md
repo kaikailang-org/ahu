@@ -24,12 +24,12 @@ Component states. Detail per component lives in
 there are no milestones.
 
 ```
-Layer 1 — Streams              designed (kaikai stdlib + sugars)
+Layer 1 — Streams              shipped  (kaikai stdlib stream + sugars)
 Layer 2 — Cells                shipped  (ahu/cell.kai — with_cell + ask)
 Layer 3 — Restart helpers      shipped  (ahu/restart.kai)
 restartable_cell               shipped  (ahu/restart.kai)
 Logging                        shipped  (ahu/log.kai — structured fields)
-run_app bootstrap              shipped  (ahu/app.kai — v1 placeholder)
+run_app bootstrap              shipped  (ahu/app.kai)
 
 Reference applications:
   examples/counter/            request/reply counter (Layer 2 + ask)
@@ -99,44 +99,27 @@ pins ahu's `pub` declarations the same way it pins kaikai's
 own surface — once a decl is in, breaking it requires an
 edition bump.
 
-Most of ahu's surface is still iterating, so the iterating
-parts are marked `#[unstable]`. Importing one prints a
-warning unless the consumer opts in:
+ahu's entire `pub` surface is **stable** under the Hanga Roa
+edition contract. There are no `#[unstable]` declarations and no
+`[unstable]` opt-in to add to your `kai.toml` — import any ahu
+module and use it directly, warning-free.
 
-```toml
-# in your kai.toml
-[unstable]
-cell    = true   # cell.ask is #[unstable]; with_cell core is stable
-restart = true   # every restart helper is #[unstable]
-log     = true   # every log helper is #[unstable]
-app     = true   # run_app placeholder is #[unstable]
-```
+What "stable" commits to, per module:
 
-What is **stable** under the Hanga Roa edition contract:
+- `ahu.cell`: `StepResult`, `keep`, `cell_done`, `with_cell`,
+  and `ask`. The cell-loop core has not changed since Tongariki
+  and the synchronous `ask` request/reply is committed to.
+- `ahu.restart.*` — the full restart-helper surface.
+- `ahu.log.*` — the structured-fields logging surface.
+- `ahu.app.run_app` — the bootstrap helper.
 
-- `ahu.cell`: `StepResult`, `keep`, `cell_done`, `with_cell` —
-  the cell-loop core has not changed since Tongariki shipping
-  and is committed to.
-
-What is `#[unstable]` (per-declaration):
-
-- `ahu.cell.ask` — synchronous request/reply. Waits on
-  upstream Clock for the planned `ask_timeout` follow-up and
-  on a typed reply-channel primitive for the cross-mailbox
-  variant.
-- `ahu.restart.*` — every public surface. The 0.66 R1 reactor
-  unblocks the planned backoff variant; OTP-style sliding
-  window pending; escalation refinements under discussion.
-- `ahu.log.*` — every public surface. Structured-fields v1
-  with several deferrals (level filter, async fan-out, wider
-  field types).
-- `ahu.app.run_app` — placeholder pending the signal-shutdown
-  integration that 0.66 R1 just unblocked.
-
-When a decl stabilises, the `#[unstable]` annotation is
-dropped in a `feat:` release. Consumers notice the missing
-warning and remove the corresponding `[unstable]` entry on
-their next clean-up.
+Planned follow-ups (a `cell.ask_timeout` once the upstream
+`Clock` effect lands, a cross-mailbox `ask` variant once a typed
+reply-channel primitive ships, a `with_restart` backoff variant,
+wider log field types) arrive as **additive** `feat:` releases.
+They extend the surface; they do not break the signatures above.
+A breaking change to any committed decl would require an edition
+bump, the same guarantee kaikai gives its own surface.
 
 ## A taste
 

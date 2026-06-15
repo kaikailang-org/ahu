@@ -59,23 +59,19 @@ import spawn
 import time
 import ahu.cell
 
-# Every `pub` in this module is `#[unstable]` for the Hanga Roa
-# edition. Restart helpers still iterate: the planned `with_restart`
-# backoff variant (now expressible thanks to kaikai 0.66's reactor
-# R1), refinements to escalation semantics, and the OTP-style
-# sliding-window `period` on `RestartLimit` are all in flight.
-# Consumers that import these decls should add `ahu = true` under
-# `[unstable]` in their `kai.toml` to acknowledge the disclosure.
-# When a decl stabilises, the annotation is dropped in a `feat:`
-# release.
+# Every `pub` in this module is stable under the Hanga Roa
+# edition. Further restart work — the `with_restart` backoff
+# variant (expressible thanks to kaikai 0.66's reactor R1),
+# refinements to escalation semantics, and the OTP-style
+# sliding-window `period` on `RestartLimit` — lands additively as
+# `feat:` releases, never as breaking changes to the signatures
+# here. Consumers import these decls without any `[unstable]`
+# acknowledgement.
 
-#[unstable]
 pub type RestartPolicy = Permanent | Transient | Temporary
 
-#[unstable]
 pub type RestartLimit = Limit(Int)
 
-#[unstable]
 pub fn default_limit() : RestartLimit = Limit(5)
 
 # Run `body` under the policy. Returns Unit on clean shutdown
@@ -84,7 +80,6 @@ pub fn default_limit() : RestartLimit = Limit(5)
 # exceeded — which lets layered supervision compose through the
 # trap-exit channel of an outer `with_restart` watching this
 # one.
-#[unstable]
 pub fn with_restart[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
@@ -121,7 +116,6 @@ pub fn with_restart[e](
 # `Duration` per call and threading it through state; ahu does
 # not commit to a `BackoffStrategy` enum until usage data
 # motivates one.
-#[unstable]
 pub fn with_restart_backoff[e](
   policy:  RestartPolicy,
   limit:   RestartLimit,
@@ -168,7 +162,6 @@ pub fn with_restart_backoff[e](
 # protocol-level liveness checks. Cell-level crash observation
 # (linked cell with separate-channel exit notification) is a
 # follow-up once kaikai exposes typed trap-exit channels.
-#[unstable]
 pub fn restartable_cell[State, Msg, e](
   policy:  RestartPolicy,
   limit:   RestartLimit,

@@ -182,7 +182,7 @@ ahu is three layers, used independently or composed:
 │   Used by: long-running stateful entities                    │
 ├──────────────────────────────────────────────────────────────┤
 │ Layer 1 — Streams                                            │
-│   Source[T, e], Flow[A, B, e], Sink[T, R, e]                 │
+│   kaikai stdlib `stream` (Stream[t, e]) + | |> || |? sugars  │
 │   Used by: request/response, ETL, broadcasts                 │
 ├──────────────────────────────────────────────────────────────┤
 │ Layer 0 — kaikai primitives                                  │
@@ -198,13 +198,17 @@ recur, not a mandatory shell around every concurrent program.
 
 ### Layer 1 — Streams
 
-**ahu ships no stream-layer code for the eager pipeline shape.**
-The combinators all live in kaikai's stdlib + language syntax;
-ahu's contribution at this layer is the canonical pipeline
-pattern plus a fixture demonstrating it with effectful
-callbacks.
+**ahu ships no stream-layer code — neither for eager pipelines
+nor for lazy streams.** Both live upstream: eager pipelines are
+kaikai's `core.list` helpers plus the `[a..b]` / `|` / `|>`
+sugars; the lazy stream is kaikai's stdlib `stream` module
+(`Stream[t, e]`, push-carrier recipe — issue #801), imported as
+`import stream`. ahu's contribution at this layer is the
+canonical pipeline pattern plus fixtures demonstrating both
+shapes with effectful callbacks (`tests/stream_pipeline.kai` for
+the eager shape, `tests/stream_lazy.kai` for the stdlib stream).
 
-The building blocks are:
+The building blocks for the eager pipeline are:
 
 | Piece | Where it lives |
 |---|---|
@@ -244,32 +248,41 @@ ahu adding any code.
 Reference fixture: `tests/stream_pipeline.kai` (output frozen
 in the sibling `.out.expected`).
 
+The stdlib `stream` carries the general lazy shape `Stream[t, e]`
+(a push-carrier recipe) with `from_list` / `read_lines` sources,
+`map` / `flat_map` / `filter` / `take` / `take_while` stages, and
+`fold` / `each` / `count` / `to_list` / `write_lines` sinks. The
+stages match the canonical pipe signatures, so `|` / `||` / `|?`
+dispatch on `Stream` by convention. ahu consumes this directly.
+
 **What this Layer is NOT (yet):**
 
-Lazy / unbounded sources do not fit the eager-list shape:
+Specific lazy / unbounded sources are still missing upstream:
 
-- `Source.from_listener(port: Int)` — TCP listener that yields
+- `from_listener(port: Int)` — TCP listener that yields
   connections indefinitely.
-- `Source.tick(every: Duration)` — periodic timer.
-- `Source.from_websocket(ws)` — stream of incoming frames.
+- `tick(every: Duration)` — periodic timer.
+- `from_websocket(ws)` — stream of incoming frames.
 
-These need either upstream support for row-poly type
-parameters in records (so `Source[T, e]` becomes expressible)
-or a function-value-based encoding that composes through
-`|>` end-to-end. Neither is currently available. The TCP echo
-example therefore uses an explicit nursery + per-connection
-cell (Layer 2) + restart wrapper (Layer 3) loop instead of a
-streamed source — see §End-to-end verification.
+The carrier exists; what is missing is each source's
+event-driven integration with the reactor (a `read_lines`-style
+producer for sockets and timers). Until those land in the stdlib
+`stream` module, the TCP echo example uses an explicit nursery +
+per-connection cell (Layer 2) + restart wrapper (Layer 3) loop
+instead of a streamed source — see §End-to-end verification.
+These are upstream gaps, tracked in §External dependencies on
+kaikai; ahu does not ship its own source module to fill them.
 
-**Why ahu does not re-export `list.*` under `stream.*`:**
+**Why ahu does not re-export the stdlib under `stream.*`:**
 
-The stdlib spelling stays canonical. Aliasing
-`stream.map` ≡ `list.map` would force users to remember which
-prefix ahu prefers without adding any expressive power.
-Convention is the cheaper fix: ahu code uses `list.*` directly
-plus the `[..]` / `|` / `|>` syntax. When lazy sources land,
-they get their own ahu module (`ahu/source.kai` or similar) —
-new surface, not aliases.
+The stdlib spelling stays canonical. ahu neither aliases
+`list.*` nor wraps the stdlib `stream` module behind its own
+prefix — that would force users to remember which prefix ahu
+prefers without adding any expressive power. ahu code uses
+`list.*` plus the `[..]` / `|` / `|>` syntax for eager pipelines
+and `import stream` directly for lazy streams. When the lazy
+sources above land, they land in the stdlib `stream` module, not
+in a new ahu module.
 
 ### Layer 2 — Cells
 
@@ -594,10 +607,23 @@ Rationale:
 
 ### Decision 2 — Streams as Layer 1 (primary paradigm for data flow)
 
-Streams ship as a first-class layer alongside cells, not as a
-side-library. For request/response, ETL, and event broadcasting
-(the bulk of what manutara will do), streams are structurally
-better than actors.
+Streams are a first-class layer alongside cells, treated as the
+primary paradigm for data flow rather than a side concern. The
+stream carrier itself lives in the kaikai stdlib (`stream`, issue
+#801) — ahu does not ship a competing implementation — but ahu's
+design elevates it to Layer 1: the canonical shape for data flow,
+documented and exercised here. For request/response, ETL, and
+event broadcasting (the bulk of what manutara will do), streams
+are structurally better than actors.
+
+This is a revision of the original draft, which planned an
+ahu-owned stream module (`ahu/stream.kai`, `Source`/`Flow`/`Sink`
+shapes). When the stdlib grew its own `stream` (push-carrier
+recipe with the canonical pipe signatures), that module became a
+duplicate and was removed: re-implementing a stdlib primitive
+violates ahu's "do not re-design kaikai primitives" rule, and the
+stdlib carrier already composes through the pipes end-to-end. ahu
+keeps the *decision* (streams are Layer 1) and drops the *code*.
 
 Rationale:
 
@@ -677,11 +703,12 @@ The pivot does not change this.
 
 **In scope:**
 
-1. **Layer 1 — Streams.** The canonical pipeline shape over
-   kaikai's stdlib + language sugars (`[a..b]`, `|`, `|>`,
-   `list.map` / `filter` / `foldl` with row-poly callbacks).
-   No `ahu/stream.kai` for eager pipelines — convention over
-   aliases.
+1. **Layer 1 — Streams.** The canonical pipeline shapes over
+   kaikai's stdlib + language sugars: the eager shape (`[a..b]`,
+   `|`, `|>`, `list.map` / `filter` / `foldl` with row-poly
+   callbacks) and the lazy shape (stdlib `stream`, `Stream[t, e]`,
+   `import stream`). No `ahu/stream.kai` at all — convention and
+   direct stdlib use over aliases or a re-implementation.
 2. **Layer 2 — Cells.** `StepResult[State]`, `keep`,
    `cell_done`, `with_cell`. The recursive step-function shape:
    `(State, Msg) -> StepResult[State] / e`. The
@@ -740,10 +767,12 @@ ahu/
     lane-experience-*.md
   kai.toml               # package manifest (name = "ahu")
   ahu/                   # module root — `import ahu.X`
-    stream.kai           # Layer 1
     cell.kai             # Layer 2
     restart.kai          # Layer 3
+    log.kai              # structured logging helpers
     app.kai              # bootstrap helper
+                         # Layer 1 (streams) is the kaikai stdlib —
+                         # no ahu module; see §Layer 1.
   tests/
   examples/
     echo/                # reference: TCP echo server
@@ -799,9 +828,11 @@ All blockers from the original design have closed upstream:
    callbacks. Layer 1's pipeline shape ships against this
    without ahu adding a stream module — see §Layer 1.
 5. **NetTcp v1.** Shipped in kaikai v0.33.0
-   (`stdlib/net/tcp.kai`). Once lazy stream sources land,
-   `Source.from_listener(port)` will wrap the `NetTcp` ops
-   directly — see `docs/roadmap.md` §*Layer 1 — Streams*.
+   (`stdlib/net/tcp.kai`). The stdlib `stream` carrier already
+   exists (issue #801); a `from_listener(port)` source wrapping
+   the `NetTcp` ops is the remaining upstream gap — it lands in
+   the stdlib `stream` module, not in ahu — see §Layer 1 and
+   `docs/roadmap.md` §*Layer 1 — Streams*.
 6. **trap-exit beats outer Cancel handler.** Closed by kaikai
    PR #122 / `lnds/kaikai#103` in 0.36.0 — the runtime now
    converts a trap-exit'd child's `Cancel.raise()` to
