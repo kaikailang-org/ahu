@@ -8,6 +8,13 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Added
 
+- **`examples/demo` — the full-stack flagship example.** A supervised
+  in-memory counter service that wires every shipped layer together:
+  a cell (Layer 2) for state, `restartable_cell` (Layer 3) for
+  supervision, `ahu.log`'s pure formatters (Layer 4) for structured
+  output, and `run_app` for graceful `SIGINT`/`SIGTERM` shutdown. It
+  submits three jobs, asks the cell for the total with `cell.ask`,
+  reports it, and exits cleanly. Runs deterministically in tier1.
 - **`#[doc]` attributes across the whole public surface.** Every
   `pub` type and function in `ahu/cell.kai`, `ahu/restart.kai`,
   `ahu/app.kai`, and `ahu/log.kai` carries a `#[doc("...")]`

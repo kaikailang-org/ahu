@@ -32,6 +32,7 @@ Logging                        shipped  (ahu/log.kai — structured fields)
 run_app bootstrap              shipped  (ahu/app.kai)
 
 Reference applications:
+  examples/demo/               full stack: cell + restart + log + run_app
   examples/counter/            request/reply counter (Layer 2 + ask)
   examples/echo/               TCP echo (all three layers + NetTcp)
   examples/pipeline/           ETL with effects (Layer 1)
