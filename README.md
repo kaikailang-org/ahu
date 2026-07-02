@@ -40,13 +40,14 @@ Reference applications:
   examples/backpressured_etl/  Bounded(c, BlockSender) backpressure
 ```
 
-All 20 fixtures compile (tier0). Tier1 (run-and-diff) passes for
+All 21 fixtures compile (tier0). Tier1 (run-and-diff) passes for
 every fixture except `examples/log_demo`: a cell fiber does not
 inherit a `Log` handler installed outside it, so logging directly
 from a cell step is unsupported (`effect not handled in fiber: Log`).
 That fixture is left running so the limitation stays visible — see the
-CHANGELOG. The repository version stays `0.0.1` indefinitely; ahu
-organises by component state, not milestones — see `docs/roadmap.md`.
+CHANGELOG. ahu versions with semver (releases are cut with
+commitizen) and organises its surface by component state rather than
+milestones — see `docs/roadmap.md`.
 
 ## Position in the ecosystem
 
