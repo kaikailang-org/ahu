@@ -229,5 +229,6 @@ and downstream code.
 
 `docs/design.md` pins the design. `docs/roadmap.md` pins the
 component states. There are no milestones — components advance
-independently and the repository version stays `0.0.1`. Past
-implementation history lives in git, not in prose retrospectives.
+independently, and releases are versioned with semver (cut via
+commitizen). Past implementation history lives in git, not in prose
+retrospectives.
