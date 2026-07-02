@@ -187,13 +187,15 @@ consumers show what shape of config they want.
 
 ### Reference applications (state: **partial**)
 
-Shipped in `examples/`: `counter` (request/reply cell),
-`pipeline` (Layer 1 ETL), `resilient_counter` (restart fault
-tolerance), `echo` (TCP echo, all layers + NetTcp),
-`backpressured_etl` (`Bounded(c, BlockSender)` mailbox between
-producer and consumer fibres; trace witnesses the producer
-parking when slots fill), `log_demo` (cell + `ahu.log`
-structured fields + `with_restart_backoff` composed end-to-end).
+Shipped in `examples/`: `demo` (the full stack end-to-end — a
+supervised counter service with `run_app` graceful shutdown, the
+flagship showcase), `counter` (request/reply cell), `pipeline`
+(Layer 1 ETL), `resilient_counter` (restart fault tolerance), `echo`
+(TCP echo, all layers + NetTcp), `backpressured_etl`
+(`Bounded(c, BlockSender)` mailbox between producer and consumer
+fibres; trace witnesses the producer parking when slots fill),
+`log_demo` (cell + `ahu.log` structured fields +
+`with_restart_backoff` composed end-to-end).
 
 `log_demo` currently reports `effect not handled in fiber: Log`: a
 cell runs in its own fiber and does not inherit a `Log` handler
