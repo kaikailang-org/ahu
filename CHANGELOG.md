@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-02
+
 ### Added
 
 - **`examples/demo` — the full-stack flagship example.** A supervised
