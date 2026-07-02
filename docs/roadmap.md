@@ -5,9 +5,9 @@ component has its own state, its own next moves, and its own
 set of upstream dependencies. Components advance independently;
 the roadmap is the union of those states, not a calendar.
 
-The repository version stays `0.0.1` indefinitely. There are no
-release gates, no definitions-of-done, no milestone names —
-just components with one of four states.
+ahu versions with semver, and releases are cut with commitizen.
+There are no milestone names or definitions-of-done — just
+components, each in one of four states.
 
 ## Component states
 
