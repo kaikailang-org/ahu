@@ -1,7 +1,7 @@
 # tests/stream_lazy.kai — ahu Layer 1 lazy streams smoke test.
 #
 # ahu ships no stream-layer code: the lazy stream lives in the
-# kaikai stdlib (`import stream`, issue #801). ahu's Layer 1
+# kaikai stdlib (`import stream`). ahu's Layer 1
 # contribution is convention plus this fixture demonstrating the
 # canonical shape with effectful callbacks. This test pins the
 # stdlib stream surface ahu depends on.

@@ -1,0 +1,6 @@
+demo: starting supervised counter service
+job accepted id=101 total=1
+job accepted id=102 total=2
+job accepted id=103 total=3
+service drained processed=3 ok=true
+demo: service stopped cleanly

@@ -1,85 +1,80 @@
-# ahu/restart.kai — ahu Layer 3: restart helpers.
-# Imported by user code as `import ahu.restart`; functions are
-# accessed dotted (`restart.with_restart(...)`,
-# `restart.default_limit()`); types stay bare
-# (`RestartPolicy`, `RestartLimit`).
-#
-# `with_restart(policy, limit, body)` spawns `body` in a child
-# fiber and watches its termination via kaikai's trap-exit
-# mechanism (`docs/actors.md` §*Trap-exit semantics*). When the
-# child terminates, the supervisor's mailbox receives "Normal"
-# or "Crashed"; the policy decides whether to spawn the body
-# again or return.
-#
-# Why use trap-exit and not just fiber_await + try: a body that
-# panics inside its own fiber cannot be caught by the parent's
-# try block — panics abort the calling fiber. trap-exit
-# converts a child fiber's termination into a message on the
-# parent's mailbox, which is observable cleanly. This is the
-# kaikai pattern documented in `examples/effects/m8_trap_exit.kai`.
-#
-# Constraints inherited from the kaikai trap-exit v1:
-#
-#   - The supervisor fiber MUST be inside a `with_mailbox` of
-#     type `String` (kaikai v1 ships String specifically; a
-#     richer ExitReason payload is upstream future work).
-#   - The body MUST install its own `with_mailbox` so its pid is
-#     materialised and trap-exit can route the termination
-#     message back to the supervisor.
-#   - The body MUST `Link.link(parent)` so the runtime knows to
-#     route the body's termination through the supervisor's
-#     mailbox.
-#
-# Escalation semantics (BEAM-faithful, post-`lnds/kaikai#103`):
-# when the cumulative restart count reaches `intensity`, the
-# supervisor calls `Cancel.raise()`. The kaikai runtime now
-# converts trap-exit'd child Cancel.raise() to "Crashed"
-# *before* any user-level Cancel handler can intercept (PR
-# #122), so layered supervision composes through the standard
-# Cancel/Link channel: a parent supervisor watching `with_restart`
-# observes escalation as a "Crashed" message in its own
-# mailbox.
-#
-# Callers who want explicit (non-Cancel) observability of
-# escalation wrap with their own Cancel handler:
-#
-#   handle {
-#     restart.with_restart(policy, limit, body)
-#   } with Cancel {
-#     raise(resume) -> Stdout.print("supervisor: escalated")
-#   }
-#
-# v1 simplification: `RestartLimit` carries only `intensity` —
-# the cumulative count of restarts allowed before escalation.
-# The OTP-style sliding-window `period` is a follow-up (depends
-# on a `Clock` effect for timestamp comparison).
+#[doc("""
+ahu Layer 3 — restart helpers.
+
+`with_restart(policy, limit, body)` spawns `body` in a child fiber
+and watches its termination via kaikai's trap-exit mechanism: when
+the child terminates, the supervisor's mailbox receives `"Normal"`
+or `"Crashed"`, and the policy decides whether to respawn or return.
+Trap-exit is used rather than `await` + a `try` block because a body
+that panics inside its own fiber cannot be caught by the parent;
+trap-exit turns the child's termination into a message the parent
+observes cleanly.
+
+Escalation is BEAM-faithful: when the cumulative restart count
+reaches the limit's intensity, the supervisor calls `Cancel.raise()`.
+A trap-exit'd child's `Cancel.raise()` is converted to `"Crashed"`
+before any user Cancel handler runs, so layered supervision composes
+through the standard Cancel/Link channel — an outer `with_restart`
+watching this one observes escalation as a `"Crashed"` message.
+
+Callers who want explicit observability of escalation wrap with their
+own Cancel handler:
+
+```kaikai
+handle {
+  restart.with_restart(policy, limit, body)
+} with Cancel {
+  raise(resume) -> Stdout.print("supervisor: escalated")
+}
+```
+
+Imported as `import ahu.restart`; functions are dotted, types stay
+bare (`RestartPolicy`, `RestartLimit`). Trap-exit semantics are
+detailed in `docs/actors.md`; the supervision design in
+`docs/design.md` §*Layer 3*.
+""")]
 
 import actor
 import spawn
 import time
 import ahu.cell
 
-# Every `pub` in this module is stable under the Hanga Roa
-# edition. Further restart work — the `with_restart` backoff
-# variant (expressible thanks to kaikai 0.66's reactor R1),
-# refinements to escalation semantics, and the OTP-style
-# sliding-window `period` on `RestartLimit` — lands additively as
-# `feat:` releases, never as breaking changes to the signatures
-# here. Consumers import these decls without any `[unstable]`
-# acknowledgement.
+#[doc("""
+When a supervised body terminates, the policy decides what happens:
 
+- `Permanent` — always restart, on normal exit or crash.
+- `Transient` — restart only on a crash; a normal exit is final.
+- `Temporary` — never restart; one run, then stop.
+""")]
 pub type RestartPolicy = Permanent | Transient | Temporary
 
+#[doc("""
+The restart budget. `Limit(intensity)` carries the cumulative number
+of restarts allowed before the supervisor escalates via
+`Cancel.raise()`. A sliding-window `period` is a planned follow-up
+(it needs a `Clock` effect for timestamp comparison).
+""")]
 pub type RestartLimit = Limit(Int)
 
+#[doc("A sensible default restart budget: `Limit(5)`.")]
 pub fn default_limit() : RestartLimit = Limit(5)
 
-# Run `body` under the policy. Returns Unit on clean shutdown
-# (Normal exit under Transient/Temporary, or Crashed exit under
-# Temporary), or raises `Cancel` when the intensity limit is
-# exceeded — which lets layered supervision compose through the
-# trap-exit channel of an outer `with_restart` watching this
-# one.
+#[doc("""
+Run `body` under a restart policy. Returns `Unit` on clean shutdown
+(a `Normal` exit under Transient/Temporary, or a `Crashed` exit under
+Temporary), or raises `Cancel` when the intensity limit is exceeded —
+which lets layered supervision compose through the trap-exit channel
+of an outer `with_restart` watching this one.
+
+The body runs under trap-exit constraints inherited from kaikai:
+
+- The supervisor fiber sits inside a `with_mailbox` of type `String`
+  (the current trap-exit payload type).
+- The body must install its own `with_mailbox` so its pid is
+  materialised and trap-exit can route its termination back.
+- The body must `Link.link(parent)` so the runtime routes its
+  termination through the supervisor's mailbox.
+""")]
 pub fn with_restart[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
@@ -90,32 +85,22 @@ pub fn with_restart[e](
   restart_loop(policy, limit, body, parent, 0)
 }
 
-# Same shape as `with_restart` but sleeps `backoff` between
-# restarts. The first body invocation is immediate; subsequent
-# re-spawns wait `backoff` after the previous body's termination
-# message lands on the supervisor's mailbox. The intent is to
-# rate-limit a crashloop without changing the policy semantics.
-#
-# Why a separate function rather than a `backoff: Option[Duration]`
-# parameter on `with_restart`: the row gains `Clock`, which we
-# don't want to leak into callers that don't need backoff. The
-# `with_restart` row stays as-is; only callers asking for backoff
-# pay the `Clock` cost in their signature.
-#
-# Cooperative semantics: under kaikai 0.66+'s R1 reactor,
-# `Clock.sleep` parks the calling fiber rather than blocking the
-# OS thread. Other fibers (siblings under the same `Spawn`, the
-# default `Log` handler, etc.) continue to run while the
-# supervisor waits to re-spawn. This is a notable departure from
-# OTP's behaviour, where the gen_server supervisor's `restart`
-# sleep does block the supervisor process.
-#
-# Backoff is a fixed `Duration` in v1 — no exponential, no
-# jitter. Variable-backoff strategies (Linear, Exponential,
-# DecorrelatedJitter) layer on top by computing the next
-# `Duration` per call and threading it through state; ahu does
-# not commit to a `BackoffStrategy` enum until usage data
-# motivates one.
+#[doc("""
+Like `with_restart` but sleeps `backoff` between restarts to
+rate-limit a crashloop. The first body invocation is immediate;
+each re-spawn waits `backoff` after the previous body's termination
+message lands. Policy semantics are unchanged.
+
+`Clock.sleep` parks the supervisor fiber rather than blocking the OS
+thread, so siblings keep running while it waits to re-spawn. This is
+a separate function rather than an `Option[Duration]` parameter on
+`with_restart` so the `Clock` effect stays out of callers that do
+not need backoff.
+
+The backoff is a fixed `Duration` — no exponential, no jitter.
+Variable-backoff strategies layer on top by computing the next
+`Duration` per call and threading it through state.
+""")]
 pub fn with_restart_backoff[e](
   policy:  RestartPolicy,
   limit:   RestartLimit,
@@ -127,41 +112,24 @@ pub fn with_restart_backoff[e](
   restart_loop_backoff(policy, limit, backoff, body, parent, 0)
 }
 
-# Spawn a cell of state `State` with message type `Msg` under
-# restart supervision. Each restart re-spawns BOTH the supervised
-# body fiber AND a fresh cell — state resets to `initial` on
-# restart, the previous cell pid is discarded.
-#
-# The body composition is:
-#
-#   1. with_restart spawns a body fiber, links it back to the
-#      supervisor, installs trap-exit on the supervisor.
-#   2. The body fiber installs a nested `with_mailbox` of `Msg`
-#      type — the inner mailbox the cell will read from.
-#   3. Inside that inner scope, `cell.with_cell(initial, step,
-#      driver)` spawns the cell as its own fiber and runs the
-#      user's `driver(pid)` in the body fiber.
-#   4. When `driver` returns, the body fiber returns Unit; the
-#      cell may outlive the body briefly (structured-shutdown
-#      gap, see `cell.kai`). trap-exit fires "Normal" / "Crashed"
-#      on the supervisor's mailbox. Restart policy applies as
-#      usual.
-#
-# Pre-`lnds/kaikai#104` (closed in 0.36.x), step 2 → step 3
-# crashed the runtime: a fiber that was trap-exit'd by its
-# parent and held a nested mailbox of a different Msg type
-# segfaulted on the inner spawn_actor. With #104 closed,
-# this composition works cleanly.
-#
-# v1 limitation: the cell crashing mid-driver is NOT observed
-# by the supervised body. The body's most-recently-allocated
-# mailbox is `Msg`, not `String`, so a cell-link trap-exit
-# would corrupt the typing. Cell crashes therefore go silent
-# from the supervisor's perspective; the driver may discover
-# the dead cell through stalled receives or via its own
-# protocol-level liveness checks. Cell-level crash observation
-# (linked cell with separate-channel exit notification) is a
-# follow-up once kaikai exposes typed trap-exit channels.
+#[doc("""
+Spawn a cell of state `State` and message type `Msg` under restart
+supervision. Each restart re-spawns both the supervised body fiber
+and a fresh cell: state resets to `initial` and the previous cell
+pid is discarded.
+
+The composition: `with_restart` spawns and links the body fiber and
+installs trap-exit on the supervisor; the body fiber installs a
+nested `with_mailbox` of `Msg`; inside it, `cell.with_cell` spawns
+the cell and runs `driver(pid)`. When `driver` returns, trap-exit
+fires `Normal`/`Crashed` on the supervisor and the policy applies.
+
+A cell that crashes mid-driver is not observed by the supervisor:
+the body's most-recent mailbox is `Msg`, not `String`, so a cell
+trap-exit would mistype the channel. The driver discovers a dead
+cell through stalled receives or its own liveness checks. Cell-level
+crash observation is a planned follow-up.
+""")]
 pub fn restartable_cell[State, Msg, e](
   policy:  RestartPolicy,
   limit:   RestartLimit,
@@ -174,6 +142,10 @@ pub fn restartable_cell[State, Msg, e](
     with_mailbox { cell.with_cell(initial, step, driver) }
   })
 
+# Restart dispatcher. Spawns the body, parks on the supervisor
+# mailbox for its termination reason, then applies the policy. At
+# the intensity limit it raises Cancel so an outer supervisor
+# observes escalation through the same trap-exit channel.
 fn restart_loop[e](
   policy: RestartPolicy,
   limit:  RestartLimit,
@@ -199,9 +171,8 @@ fn restart_loop[e](
 }
 
 # Sibling of `restart_loop` that sleeps `backoff` between restarts.
-# Mirrors the policy/limit/Cancel logic exactly; the only difference
-# is the `sleep(backoff)` call before each re-spawn (skipped for the
-# very first spawn).
+# Same policy/limit/Cancel logic; the only difference is the
+# `sleep(backoff)` before each re-spawn (skipped for the first).
 fn restart_loop_backoff[e](
   policy:  RestartPolicy,
   limit:   RestartLimit,

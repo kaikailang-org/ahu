@@ -5,13 +5,11 @@
 # intensity=2 means: body runs twice (count 0 and 1), the
 # third would exceed intensity, so with_restart calls
 # Cancel.raise(). The caller wraps with a Cancel handler so
-# the program observes the escalation as a raised effect —
-# the BEAM-faithful semantics now that `lnds/kaikai#103`
-# closed in PR #122 (the kaikai runtime converts trap-exit'd
-# child Cancel.raise() to "Crashed" *before* any user-level
-# Cancel handler can intercept, so the outer Cancel handler
-# only catches the supervisor's own Cancel.raise() at the
-# escalation site — never the child's).
+# the program observes the escalation as a raised effect. The
+# runtime converts a trap-exit'd child's Cancel.raise() to
+# "Crashed" before any user-level Cancel handler can intercept,
+# so the outer Cancel handler only catches the supervisor's own
+# Cancel.raise() at the escalation site — never the child's.
 #
 # Verifies that escalation composes through Cancel: a layered
 # parent (an outer `with_restart` watching this one) would

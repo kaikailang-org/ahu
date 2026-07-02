@@ -18,8 +18,8 @@
 #     body fiber, gets converted to "Crashed" via trap-exit,
 #     the supervisor's Permanent policy restarts.
 #   - Escalation via Cancel.raise() at intensity exhaustion
-#     composes through the outer Cancel handler — Layer 3 v2's
-#     BEAM-faithful semantics (PR #7, kaikai #103 closing).
+#     composes through the outer Cancel handler — the
+#     BEAM-faithful supervision semantics.
 
 import spawn
 import actor
