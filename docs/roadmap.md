@@ -24,23 +24,22 @@ release that breaks a runtime path is the canonical case).
 
 ## Components
 
-### Layer 1 — Streams (state: **shipped**, ahu/stream.kai)
+### Layer 1 — Streams (state: **shipped**, kaikai stdlib)
 
 Two complementary shapes:
 
-- **Eager pipelines over `[T]`** still ship against kaikai's
-  stdlib + language sugars (`[a..b]`, `|`, `|>`, `list.map` /
-  `filter` / `foldl`). ahu adds zero code for this case — the
-  reference fixture is `tests/stream_pipeline.kai`.
-- **Lazy streams** ship in `ahu/stream.kai` via the function-
-  value encoding `Stream[t, e] = () -> Option[t] / Mutable + e`.
-  Surface: `from_list`, `map`, `filter`, `flat_map`, `take`,
-  `foreach`, `fold`, `to_list`. Pipe convention dispatch
-  (`s | f` / `s |? p` / `s || f`, kaikai 0.65+) routes through
-  this module by head type. Pure named callbacks compose
-  without `[e] / e` boilerplate thanks to row auto-
-  generalization (kaikai 0.70.0 / #645). Spec: `ahu/stream.kai`
-  header.
+- **Eager pipelines over `[T]`** ship against kaikai's stdlib +
+  language sugars (`[a..b]`, `|`, `|>`, `list.map` / `filter` /
+  `foldl`). ahu adds zero code for this case — the reference fixture
+  is `tests/stream_pipeline.kai`.
+- **Lazy streams** are the kaikai stdlib `stream` module
+  (`Stream[t, e]`, `map` / `filter` / `flat_map` / `take` / `each` /
+  `fold` / `to_list`); ahu ships no stream-layer code of its own.
+  Pipe convention dispatch (`s | f` / `s |? p` / `s || f`) routes
+  through it by head type, and pure named callbacks compose without
+  `[e] / e` boilerplate thanks to row auto-generalization. The
+  reference fixture is `tests/stream_lazy.kai`, which pins the stdlib
+  stream surface ahu depends on.
 
 **Possible follow-ups**:
 
@@ -48,8 +47,8 @@ Two complementary shapes:
   `from_listener(port)`, `from_websocket(ws)`. Need chunked-
   read primitives upstream (`fs.file` today only ships
   `file_read_file` which materialises the whole file). The
-  reactor (R1+R2+R3 shipped) gives the parking infrastructure;
-  what's missing is the primitive read shape.
+  reactor gives the parking infrastructure; what's missing is
+  the primitive read shape.
 - **Stream extensions** — windowing, grouping, broadcast/fanout,
   error-recovery combinators. `window` / `throttle` would lean
   on the `Clock` effect. `recover_with` would carry a
@@ -62,8 +61,8 @@ A cell is a fiber + typed mailbox + recursive step function;
 the user writes `(State, Msg) -> StepResult[State] / e` and
 ahu drives it. Spec: `docs/design.md` §*Layer 2*.
 
-**Constraint surfaced under kaikai 0.56**: `with_cell` shares a
-single open row variable `e` between step and body. Callers
+**Row constraint**: `with_cell` shares a single open row variable
+`e` between step and body. Callers
 whose step and body diverge must reconcile rows at the call
 site (see `examples/echo/main.kai` for the canonical
 workaround). This is structural — kaikai allows only one open
@@ -91,35 +90,32 @@ row variable per row, and it must be the last item.
 `docs/design.md` §*Layer 3*.
 
 `with_restart_backoff` adds a `Duration` parameter that sleeps
-between restarts via the `Clock` effect (cooperative under
-kaikai 0.66+'s R1 reactor — other fibers keep running during
-the backoff wait, departure from OTP's supervisor-blocks
-behaviour). v1 ships fixed `Duration`; variable strategies
+between restarts via the `Clock` effect. The sleep is cooperative —
+the reactor parks the supervisor fiber, so other fibers keep running
+during the backoff wait, a departure from OTP's supervisor-blocks
+behaviour. The backoff is a fixed `Duration`; variable strategies
 (Linear / Exponential / DecorrelatedJitter) layer on top.
 
 Tier1 fixtures exercise the three policies under crash and
-escalation conditions. **Green under both backends (C and LLVM)
-on kaikai 0.59.0.** The LLVM regressions that haunted 0.56.x
-through 0.58 (`kaikai#570`, `#582`, the `Link`/`Monitor`
-residue) are all closed; the Makefile no longer pins the
-backend. See `docs/known-regressions.md` for the historical
-arc.
+escalation conditions, green under both backends (C and LLVM); the
+Makefile does not pin one.
 
 ### Bootstrap (state: **shipped**, ahu/app.kai)
 
-`run_app(root) : Unit / Console + Spawn` — v1 placeholder that
-runs `root` directly. Signal-driven shutdown
-(`SIGINT`/`SIGTERM` triggering cancellation of the root fiber
-so `Cancel` handlers run) is deferred — see
-`docs/design.md` §*Bootstrap*.
+`run_app(root) : Unit / Spawn + Signal + Cancel + e` — spawns
+`root` in a nursery alongside a signal-waiter that cancels root on
+`SIGINT`/`SIGTERM`, so root's `Cancel` handlers (cell and restart
+cleanup) run before the process exits. On natural root exit the
+signal-waiter is cancelled so the nursery joins it and returns.
+Spec: `docs/design.md` §*Bootstrap*.
 
 **Possible follow-ups**:
 
-- **Signal-based shutdown** — install `SIGINT`/`SIGTERM`
-  handlers, open root nursery, run root inside, park on
-  `Signal.await()`, propagate cancellation. Depends on
-  kaikai's `Signal` effect (landed 0.36.x) and a stable
-  trap-exit / nursery cancellation story.
+- **Multi-signal coalescing** — a second `SIGINT` during graceful
+  shutdown currently falls through to the default disposition
+  (immediate exit), the conventional double-tap to force quit. A
+  coalescing mode that escalates to a hard cancel is a possible
+  addition.
 
 ### Process registry (state: **idea**)
 
@@ -172,7 +168,7 @@ half. Spec: `ahu/log.kai` header.
   been designed upstream. Filtering today belongs in the user's
   own `Log` handler.
 - **Async fan-out to multiple sinks** (stderr + `fs.file`).
-  The reactor (R1 file/sleep/process) ships the parking
+  The reactor ships the parking
   infrastructure, but `fs.file.append` itself is still a
   synchronous surface; async fan-out needs either an async
   write surface or a per-sink writer fiber the user
@@ -197,19 +193,22 @@ tolerance), `echo` (TCP echo, all layers + NetTcp),
 `backpressured_etl` (`Bounded(c, BlockSender)` mailbox between
 producer and consumer fibres; trace witnesses the producer
 parking when slots fill), `log_demo` (cell + `ahu.log`
-structured fields + `with_restart_backoff` composed end-to-end;
-shows state-reset between restarts via the logfmt trace).
+structured fields + `with_restart_backoff` composed end-to-end).
+
+`log_demo` currently reports `effect not handled in fiber: Log`: a
+cell runs in its own fiber and does not inherit a `Log` handler
+installed outside it, so logging directly from a cell step is
+unsupported. The fixture is left running so the limitation stays
+visible; see `CHANGELOG.md`.
 
 **Possible additions** (no commitment):
 
 - Websocket chat using cells per session + a broadcast
   stream.
-- Cell-mediated back-pressure once `spawn_actor_policy` lands
-  upstream (`stdlib/actor.kai` §`spawn_actor` v1
-  simplification). The current `backpressured_etl` deliberately
-  avoids cells for that reason; once the upstream gap closes,
-  a sibling example can demonstrate the same pattern with a
-  bounded cell mailbox.
+- Cell-mediated back-pressure by spawning the cell with a bounded
+  mailbox. The current `backpressured_etl` uses the underlying
+  `with_mailbox_policy` + `spawn_actor` shape directly because
+  `with_cell` spawns the cell with an unbounded mailbox.
 
 ### Distribution (state: **idea**, far-future)
 
@@ -232,12 +231,9 @@ over it.
 
 ## Upstream dependencies — current open items
 
-Live tracking lives in `docs/known-regressions.md`. Against
-kaikai 0.59.0: **no active blockers.** The LLVM regression arc
-that ran from 0.56.x through 0.58 (`kaikai#570`, `#582`, the
-`Link`/`Monitor` residue, the `#571` cosmetic diagnostic) is
-fully closed. tier1 passes under both backends; the Makefile
-no longer pins one.
+Live tracking lives in `docs/known-regressions.md`. There are **no
+active blockers**: tier1 passes under both backends and the Makefile
+does not pin one.
 
 ## Optimisation themes (no ordering)
 

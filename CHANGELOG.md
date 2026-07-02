@@ -4,6 +4,50 @@ All notable changes to ahu are tracked in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres
 to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
+## [Unreleased]
+
+### Added
+
+- **`#[doc]` attributes across the whole public surface.** Every
+  `pub` type and function in `ahu/cell.kai`, `ahu/restart.kai`,
+  `ahu/app.kai`, and `ahu/log.kai` carries a `#[doc("...")]`
+  attribute, and each file opens with a module `#[doc]`. The docs are
+  surfaced by `kai doc ahu/<module>` and `kai doc ahu/<module>.<symbol>`
+  (e.g. `kai doc ahu/cell`, `kai doc ahu/cell.with_cell`), and are
+  also consumed by `kaic2 --doc-json` and typed-hole reports.
+
+### Changed
+
+- **Comments and docs: brief, timeless, non-contingent.** Source
+  comments, `#[doc]` text, and the docs in this repository no longer
+  name issue trackers, tickets, PRs, compiler version numbers, or
+  "v1/v2" framing — that history lives in git and the upstream kaikai
+  tracker. Deep design rationale that previously sat in module headers
+  now points to `docs/design.md`; the headers became user-facing
+  `#[doc]`. The convention is recorded in `CLAUDE.md`
+  §*Comments and documentation*.
+- **`run_app` cancels its signal-waiter once the root fiber
+  completes.** The enclosing nursery joins every child it spawned
+  before returning, so the signal-waiter — parked on `Signal.await()`
+  — is cancelled explicitly with `n.cancel(w)` after `n.await(root)`
+  returns. `n.cancel` wakes a fiber parked on `Signal.await()`, so the
+  nursery joins it and the scope returns on natural root exit.
+- **`examples/backpressured_etl` spawns the producer with
+  `spawn_actor`.** The producer fiber gets its own `Actor[String]`
+  handler for `Actor.send`; back-pressure against the bounded mailbox
+  is unchanged.
+
+### Known issues
+
+- **`examples/log_demo` reports `effect not handled in fiber: Log`.**
+  A cell runs in its own fiber, which does not inherit a `Log` handler
+  installed outside it, so logging directly from a cell step is
+  unsupported — a cell can perform only effects handled within its own
+  fiber (`Actor`, plus the native `Console` leaves). Logging from a
+  cell needs a different shape: route events through the cell's
+  mailbox, or log from the driver/supervisor fiber. The fixture is
+  left running so the limitation stays visible.
+
 ## [0.1.0] - 2026-06-14
 
 ### Removed
