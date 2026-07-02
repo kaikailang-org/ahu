@@ -1,133 +1,70 @@
-# ahu/cell.kai — ahu Layer 2: long-running stateful entities.
-# Imported by user code as `import ahu.cell`; functions are
-# accessed dotted (`cell.with_cell(...)`, `cell.keep(s)`,
-# `cell.cell_done()`); types stay bare (`StepResult[State]`).
-#
-# A cell is a fiber + typed mailbox + recursive step function.
-# State is the recursion argument (no internal mutation). Each
-# call to the step function receives one message, returns the
-# next state, and the dispatcher loops or terminates based on
-# the result.
-#
-# The user-facing constructor is `with_cell(initial, step, body)`
-# (the same shape as kaikai stdlib's `with_mailbox`): the cell
-# is spawned, the user's `body` runs inside the cell's lifetime
-# scope and receives the cell's `Pid[Msg]` to talk to it, and
-# the cell shuts down when `body` returns. This shape is
-# enforced by kaikai's region-brand walker — a free `start_cell
-# : ... -> Pid[Msg]` form would require user code to return a
-# `Pid[Msg]`, which the walker rejects until full TyBranded
-# propagation lands upstream (`fibers-honesty-targets.md`
-# §*Residual m8.x items*; the allow-list lives in the kaikai
-# compiler's `fiber_producer_helpers`). The with-shape is the
-# load-bearing form for this module and reads cleanly:
-#
-#   with_cell(0, counter_step, (counter) => {
-#     Actor.send(counter, Increment)
-#     ...
-#   })
-#
-# Why a step function over `(state, msg)` instead of Akka Typed's
-# recursive `Behavior[T]` value: kaikai effect rows can only
-# appear in function-type effect positions, not as type
-# parameters of ordinary types (`docs/effects.md` §*Inference*).
-# A `Behavior[Msg, e]` carrying its own row was the original
-# sketch but does not type-check; a step function
-# `(State, Msg) -> StepResult[State] / e` carries the row at the
-# function-type level, which the typer permits. Behavior
-# switching (Active → Paused → Draining) is encoded as a sum
-# type for State — same expressive power as returning a
-# different `Behavior` in Akka Typed, just spelled differently.
-#
-# Spec: `docs/design.md` §*Layer 2 — Cells*.
+#[doc("""
+ahu Layer 2 — cells: long-running stateful entities.
+
+A cell is a fiber + typed mailbox + recursive step function. State
+is the recursion argument, not internal mutation: each step receives
+one message, returns the next state, and the dispatcher loops or
+terminates on the result.
+
+The user-facing constructor is `with_cell(initial, step, body)`: the
+cell is spawned, `body` runs inside the cell's lifetime scope with
+the cell's `Pid[Msg]` to talk to it, and the cell shuts down when
+`body` returns or its step returns `Done`. `keep` and `cell_done`
+are the two step continuations; `ask` automates synchronous
+request/reply over the cell's mailbox.
+
+Imported as `import ahu.cell`; functions are dotted
+(`cell.with_cell`, `cell.keep`, `cell.cell_done`), types stay bare
+(`StepResult`). Design rationale — why a step function over a
+`Behavior` value, how behavior switching is encoded — lives in
+`docs/design.md` §*Layer 2 — Cells*.
+""")]
 
 import actor
 import spawn
 
-# StepResult tags whether the cell continues or exits. It does
-# not carry an effect row — the row lives on the step function's
-# type, not on the result.
+#[doc("""
+The result of one cell step: `Continue(state)` to loop with the next
+state, or `Done` to terminate the cell. The effect row lives on the
+step function's type, not on this result.
+""")]
 pub type StepResult[State] = Continue(State) | Done
 
-# `cell_done()` is the canonical terminator. Use it instead of a
-# bare `Done` constructor when the type cannot be inferred.
+#[doc("Terminate the cell. Use instead of a bare `Done` where the type cannot be inferred.")]
 pub fn cell_done[State]() : StepResult[State] = Done
 
-# `keep(state)` is the continuation form. Symmetric spelling at
-# the call site:
-#   match msg {
-#     Increment -> keep(state + 1)
-#     Stop      -> cell_done()
-#   }
+#[doc("""
+Continue the cell with the next state. Symmetric with `cell_done`
+at the call site:
+
+```kaikai
+match msg {
+  Increment -> keep(state + 1)
+  Stop      -> cell_done()
+}
+```
+""")]
 pub fn keep[State](s: State) : StepResult[State] = Continue(s)
 
-# Run a cell scope. Spawns a cell with `initial` state and `step`
-# as the per-message handler, then calls `body` with the cell's
-# `Pid[Msg]`. The body uses the pid (typically via `Actor.send`)
-# and returns its result. When the body returns, control flows
-# out — the cell continues running until it returns `Done` from
-# its step function or its parent nursery cancels it. Effects of
-# `step` and `body` flow into the caller's row via the open row
-# variable `e`.
-#
-# Both `step` and `body` share the single row variable `e`. That
-# is a structural constraint imposed by kaikai's row system —
-# row syntax permits at most one open row variable per row, and
-# it must be the final item (see the typer's "row variable must
-# be the last item in the row" check). Callers whose step and
-# body have genuinely divergent effects must reconcile them at
-# the call site, typically by `handle`-ing the extra effects of
-# the body before entering the cell scope. The TCP echo example
-# is the canonical case where this constraint surfaces; see
-# `docs/known-regressions.md` for the workaround applied there.
-#
-# The body must coexist in the caller's `Actor[Msg]` row when it
-# wants to send to the cell (or receive replies from it through
-# the same mailbox). The caller typically establishes that with
-# an outer `with_mailbox` whose Msg type matches the cell's.
-# Synchronous request/reply over the standard `with_mailbox` shape.
-# The caller sits in `Actor[Msg]` (the same Msg type the cell
-# mailbox carries), builds a request that embeds its own `Pid[Msg]`
-# as the reply target, sends it to the cell, and parks on its own
-# `Actor.receive()` until something lands.
-#
-# Why the request and reply share the `Msg` type: kaikai's
-# `Actor.send : Pid[T] -> T` ties the destination pid type to the
-# active handler's Msg, so a caller installed under `with_mailbox[Reply]`
-# cannot `Actor.send(cell_pid, request)` against a `Pid[Msg]` cell
-# unless `Reply ≡ Msg`. The canonical workaround is the existing
-# pattern (the `cell_state_record.kai` fixture is the canonical
-# example): make the reply a variant of the cell's `Msg` union, so
-# both directions live on the same mailbox type. `ask` automates
-# that pattern; it does not lift the constraint.
-#
-# What the caller writes:
-#
-#   let s = cell.ask(stats_pid, (me) => GetState(me))
-#   match s {
-#     StateReply(record) -> ...
-#     other              -> ... # discrimination is the caller's job
-#   }
-#
-# The discriminator stays in the caller because `Actor.receive()`
-# returns *any* `Msg`, including stray messages that arrived
-# between the send and the reply. Callers that need stricter
-# guarantees (e.g. correlation IDs, drop-on-mismatch) layer those
-# on top — they are not v1 concerns.
-#
-# Cross-mailbox request/reply with separate Msg/Reply types is a
-# follow-up that depends on kaikai exposing a typed "reply
-# channel" primitive distinct from the per-fiber mailbox. The
-# `Pid[Msg]` typing of `Actor.send` makes this not implementable
-# at user-level today.
-#
-# Stable under the Hanga Roa edition. The planned `ask_timeout`
-# follow-up (depends on the `Clock` effect) and the eventual
-# cross-mailbox variant (depends on an upstream reply-channel
-# primitive) land as additive helpers, not as changes to this
-# signature. The cell-loop core (`with_cell` / `keep` /
-# `cell_done` / `StepResult`) is likewise under the edition
-# contract.
+#[doc("""
+Synchronous request/reply against a cell. Embeds the caller's own
+`Pid[Msg]` as the reply target via `build_request`, sends it, and
+parks on `Actor.receive()` until a message lands.
+
+Request and reply share the cell's `Msg` type because `Actor.send`
+ties the destination pid type to the active mailbox: the reply must
+be a variant of the cell's `Msg` union so both directions ride the
+same mailbox. `Actor.receive()` returns any `Msg`, so the caller
+discriminates the result — stray messages that arrive between send
+and reply are the caller's to handle.
+
+```kaikai
+match cell.ask(stats_pid, (me) => GetState(me)) {
+  StateReply(record) -> ...
+  other              -> ...
+}
+```
+""")]
 pub fn ask[Msg, e](
   cell_pid:      Pid[Msg],
   build_request: (Pid[Msg]) -> Msg
@@ -137,6 +74,24 @@ pub fn ask[Msg, e](
   Actor.receive()
 }
 
+#[doc("""
+Run a cell scope. Spawns a cell with `initial` state and `step` as
+its per-message handler, then calls `body` with the cell's
+`Pid[Msg]`. The body uses the pid (typically via `Actor.send`) and
+returns its result; the cell runs until its step returns `Done` or
+the parent nursery cancels it.
+
+`step` and `body` share the single row variable `e`: kaikai's row
+system permits at most one open row variable per row. Callers whose
+step and body have genuinely divergent effects reconcile them at the
+call site, typically by handling the body's extra effects before
+entering the cell scope.
+
+To send to the cell (or receive replies through the same mailbox),
+the body must coexist in the caller's `Actor[Msg]` row — typically
+established by an outer `with_mailbox` whose Msg type matches the
+cell's.
+""")]
 pub fn with_cell[State, Msg, R, e](
   initial: State,
   step:    (State, Msg) -> StepResult[State] / e,
@@ -146,11 +101,10 @@ pub fn with_cell[State, Msg, R, e](
   body(pid)
 }
 
-# The dispatcher loop. Internal to ahu — users never call it
-# directly. Receives one message, runs `step`, recurses or
-# returns based on the result. Tail-recursive so the cooperative
-# scheduler treats this as a single fiber that lives until
-# `Done`.
+# The dispatcher loop. Internal — users never call it directly.
+# Receives one message, runs `step`, recurses or returns on the
+# result. Tail-recursive, so the cell is a single fiber that lives
+# until `Done`.
 fn cell_loop[State, Msg, e](
   state: State,
   step:  (State, Msg) -> StepResult[State] / e

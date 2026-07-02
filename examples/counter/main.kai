@@ -43,12 +43,10 @@ fn counter_step(value: Int, msg: CounterMsg)
     }
     ReplyValue(_)      -> keep(value)
     Stop               -> cell.cell_done()
-    # Note: the cell's Stop branch does not print before exiting
-    # because the driver may return from `with_cell` before the
-    # scheduler gives the cell another tick. Structured shutdown
-    # (`with_cell` await-ing the cell's fiber) is deferred — see
-    # docs/design.md §Layer 2 *Cells* and the open watch items
-    # for structured `with_cell` shutdown.
+    # The Stop branch does not print before exiting: the driver may
+    # return from `with_cell` before the scheduler gives the cell
+    # another tick. See `docs/design.md` §*Layer 2 — Cells* for the
+    # structured-shutdown shape.
   }
 
 # Driver. Inside a with_mailbox of CounterMsg type so it can both

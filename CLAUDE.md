@@ -22,6 +22,39 @@ cross-cutting conventions agents must follow.
 - Conversation with the user (Spanish) is not documentation and does
   not appear in the repo.
 
+## Comments and documentation
+
+- **Comments AND docs are brief, timeless, and non-contingent.**
+  This covers source comments, `#[doc]` text, and every doc in the
+  repo — `README.md`, `CHANGELOG.md` prose, `docs/`. Each explains
+  the *what* and *why* in terms that still read true a year from now,
+  to someone with no access to the work context that produced it.
+- **Never name an issue tracker, ticket, or PR — in code or docs** —
+  no `lnds/kaikai#123`, no `PR #45`, no `sc-XXXX`, not even in the
+  CHANGELOG narrative or the README. Likewise drop contingent work
+  context: lanes, plans, phases, branch names, migration narratives,
+  and "fixed in version X" history. That belongs in the commit
+  message or PR description. A specific compiler version, reactor
+  phase, or "v1/v2" framing dates the file; state the current
+  behaviour as a fact instead, and let git carry the moving history.
+  (The `#123` / `PR #45` tokens above are illustrations of the
+  banned form, not references to real work.)
+- **An upstream kaikai bug is recorded in the kaikai issue tracker,
+  not in this repo.** A `docs/known-regressions.md` entry that
+  mirrors an upstream issue goes stale the moment it is fixed and
+  makes ahu look like the owner of someone else's bug. Open the issue
+  upstream and let that be the record.
+- **Public API uses `#[doc("...")]`.** Every `pub` type and function
+  in `ahu/*.kai` carries a `#[doc]` attribute with a one-sentence
+  first line; the file-top `#[doc]` (separated from the first
+  declaration by a blank line) is the module doc. These are surfaced
+  by `kai doc ahu/<module>`, `kaic2 --doc-json`, and typed-hole
+  reports. Rust-style `///` doc comments do not exist in kaikai.
+- **Deep design rationale lives in `docs/design.md`,** not inline.
+  Keep `#[doc]` focused on how to use the symbol; keep plain `#`
+  comments for non-obvious internal implementation notes; point to
+  `docs/design.md` for the "why we shaped it this way".
+
 ## Inherited from kaikai
 
 ahu inherits its principle stack and lane discipline from kaikai. The
@@ -197,6 +230,4 @@ and downstream code.
 `docs/design.md` pins the design. `docs/roadmap.md` pins the
 component states. There are no milestones — components advance
 independently and the repository version stays `0.0.1`. Past
-implementation cycles are captured in
-`docs/lane-experience-*.md` as timestamped retrospectives; those
-files are historical record and are not rewritten.
+implementation history lives in git, not in prose retrospectives.
