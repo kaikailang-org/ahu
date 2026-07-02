@@ -32,6 +32,7 @@ Logging                        shipped  (ahu/log.kai — structured fields)
 run_app bootstrap              shipped  (ahu/app.kai)
 
 Reference applications:
+  examples/demo/               full stack: cell + restart + log + run_app
   examples/counter/            request/reply counter (Layer 2 + ask)
   examples/echo/               TCP echo (all three layers + NetTcp)
   examples/pipeline/           ETL with effects (Layer 1)
@@ -39,10 +40,13 @@ Reference applications:
   examples/backpressured_etl/  Bounded(c, BlockSender) backpressure
 ```
 
-Tier1 (run-and-diff) is green at 16 fixtures against kaikai
-0.66.0 under both the C and LLVM backends. The repository
-version stays `0.0.1` indefinitely; ahu organises by component
-state, not milestones — see `docs/roadmap.md`.
+All 20 fixtures compile (tier0). Tier1 (run-and-diff) passes for
+every fixture except `examples/log_demo`: a cell fiber does not
+inherit a `Log` handler installed outside it, so logging directly
+from a cell step is unsupported (`effect not handled in fiber: Log`).
+That fixture is left running so the limitation stays visible — see the
+CHANGELOG. The repository version stays `0.0.1` indefinitely; ahu
+organises by component state, not milestones — see `docs/roadmap.md`.
 
 ## Position in the ecosystem
 
@@ -201,6 +205,11 @@ is required.
 
 ## Documentation
 
+- **API reference via `kai doc`.** Every `pub` type and function
+  carries a `#[doc]` attribute, so the surface is browsable from the
+  command line: `kai doc ahu/<module>` lists a module's items and
+  `kai doc ahu/<module>.<symbol>` shows a signature with its full
+  doc (e.g. `kai doc ahu/log`, `kai doc ahu/log.info_kv`).
 - **`docs/design.md`** — surface, decisions, external
   dependencies on kaikai, not-goals, references.
 - **`docs/roadmap.md`** — components and their state; the
@@ -208,9 +217,6 @@ is required.
 - **`docs/known-regressions.md`** — open issues outside this
   repository that block or constrain ahu against the
   current kaikai release.
-- **`docs/lane-experience-*.md`** — historical
-  retrospectives. Timestamped record of how earlier
-  iterations happened. Not rewritten.
 
 ## Documentation language
 

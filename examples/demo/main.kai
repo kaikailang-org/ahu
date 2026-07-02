@@ -1,0 +1,76 @@
+# examples/demo/main.kai — the whole ahu stack in one small service.
+#
+# A supervised in-memory job counter with graceful shutdown, wiring
+# every shipped layer together:
+#
+#   Layer 2 (cell)     — a counter cell owns the running total and
+#                        answers a Count request.
+#   Layer 3 (restart)  — `restartable_cell` boots the cell under
+#                        supervision; a crash would respawn a fresh
+#                        cell with reset state.
+#   Layer 4 (logging)  — structured logfmt lines via `ahu.log`'s pure
+#                        formatters, which render outside the `Log`
+#                        effect and so work in any fiber.
+#   Bootstrap          — `run_app` runs the service and turns
+#                        SIGINT/SIGTERM into a graceful cancel.
+#
+# The service submits three jobs, asks the cell for the total with
+# `cell.ask`, reports it, and returns — `run_app` then exits cleanly.
+
+import spawn
+import actor
+import ahu.cell
+import ahu.restart
+import ahu.log
+import ahu.app
+
+# Reply rides the same mailbox as the requests (`Report`), the shape
+# `cell.ask` needs.
+type JobMsg = Submit(Int) | Count(Pid[JobMsg]) | Report(Int)
+
+# Layer 2: the cell step. State is the running total; each accepted
+# job renders a structured line through `log.format_event`.
+fn counter_step(total: Int, msg: JobMsg)
+  : StepResult[Int] / Actor[JobMsg] + Console
+= match msg {
+    Submit(id) -> {
+      Stdout.print(log.format_event("job accepted",
+        [IntField("id", id), IntField("total", total + 1)]))
+      cell.keep(total + 1)
+    }
+    Count(reply) -> {
+      Actor.send(reply, Report(total))
+      cell.keep(total)
+    }
+    Report(_) -> cell.keep(total)
+  }
+
+# The driver runs against the supervised cell: submit three jobs,
+# ask for the total, report it, then return so the service stops.
+fn driver(pid: Pid[JobMsg]) : Unit / Actor[JobMsg] + Console = {
+  Actor.send(pid, Submit(101))
+  Actor.send(pid, Submit(102))
+  Actor.send(pid, Submit(103))
+  match cell.ask(pid, (me) => Count(me)) {
+    Report(n) -> Stdout.print(log.format_event("service drained",
+                   [IntField("processed", n), BoolField("ok", true)]))
+    Submit(_) -> Stdout.print("driver: unexpected Submit")
+    Count(_)  -> Stdout.print("driver: unexpected Count")
+  }
+}
+
+# Layer 3 + the supervisor mailbox. `Transient` returns cleanly when
+# the driver exits normally; a crash would restart a fresh cell.
+fn root() : Unit / Spawn + Link + Cancel + Console = {
+  Stdout.print("demo: starting supervised counter service")
+  with_mailbox {
+    restart.restartable_cell(Transient, restart.default_limit(), 0,
+      counter_step, driver)
+  }
+  Stdout.print("demo: service stopped cleanly")
+}
+
+fn main() : Int / Spawn + Cancel + Console + Link + Signal = {
+  app.run_app(root)
+  0
+}

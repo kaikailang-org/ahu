@@ -6,11 +6,9 @@
 # Body returns cleanly → trap-exit "Normal" → Transient policy
 # returns Unit.
 #
-# Verifies the post-`lnds/kaikai#104` composition: a fiber
-# trap-exit'd by its parent can hold a nested mailbox of a
-# different Msg type and call `spawn_actor` inside without
-# crashing the runtime. This pattern was the load-bearing
-# blocker for `restartable_cell` in earlier ahu lanes.
+# Verifies the load-bearing composition for `restartable_cell`: a
+# fiber trap-exit'd by its parent can hold a nested mailbox of a
+# different Msg type and call `spawn_actor` inside it.
 
 import actor
 import spawn

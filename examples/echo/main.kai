@@ -5,41 +5,35 @@
 # stdlib primitives:
 #
 #   Layer 1 — pipeline pattern: each connection's input/output
-#             is conceptually a stream; v1 uses an explicit
-#             tail-recursive loop because lazy/unbounded
-#             sources need upstream kaikai support that has not
-#             landed yet.
+#             is conceptually a stream; an explicit tail-recursive
+#             loop stands in until lazy/unbounded sources land in
+#             the kaikai stdlib.
 #   Layer 2 — cells: per-session counter cell tracks frame
 #             count, prints summary on disconnect.
 #   Layer 3 — restart helpers: the listener loop is wrapped
 #             in `with_restart(Permanent, ...)` so an accept
 #             error restarts the listener.
 #   Layer 4 — run_app bootstrap: SIGINT/SIGTERM trigger
-#             graceful shutdown via Signal effect.
+#             graceful shutdown via the Signal effect, letting
+#             cell `Cancel` handlers run before exit.
 #
-# The kaikai primitives:
-#   `NetTcp.listen / accept / send / recv / close` — kaikai 0.33+
-#   `Signal.on / await / off` — kaikai 0.36+ (issue #107)
-#   `set_trap_exit / Link.link` — kaikai m8.x scheduler
+# The kaikai primitives it leans on:
+#   `NetTcp.listen / accept / send / recv / close`
+#   `Signal.on / await`
+#   `set_trap_exit / Link.link`
 #
 # Test it locally:
 #   $ make build/echo
 #   $ build/echo &
 #   $ echo "hello" | nc -q1 127.0.0.1 8080
 #   hello
-#   $ kill %1   # SIGTERM, default disposition; abrupt exit
+#   $ kill -INT %1   # SIGINT; graceful shutdown via run_app
 #
-# v1 limitations (will lift as kaikai m8.x reactor lands):
-#   - One connection at a time (NetTcp.accept blocks the OS
-#     thread; concurrent multi-connection handling waits on
-#     kaikai post-m8.x reactor work).
-#   - 1024-byte recv buffer; longer payloads chunked across
+# Known limitations:
+#   - One connection at a time: the accept loop handles a session
+#     to completion before accepting the next.
+#   - 1024-byte recv buffer; longer payloads chunk across
 #     receive calls.
-#   - No graceful Ctrl-C handling. ahu's `run_app` is a v1
-#     placeholder (see `ahu/app.kai` header); Signal-based
-#     shutdown that lets cell `Cancel` handlers run waits on
-#     the reactor. Today: SIGINT/SIGTERM kill the process
-#     abruptly.
 
 import spawn
 import actor
@@ -100,9 +94,9 @@ fn handle_connection(client: Conn)
   let _ = NetTcp.close(client)
 }
 
-# Tail-recursive accept loop. After handling one connection
-# (sequentially under v1's blocking accept), recurse for the
-# next. Errors are logged and the loop continues.
+# Tail-recursive accept loop. Handles one connection to
+# completion, then recurses for the next. Errors are logged and
+# the loop continues.
 fn accept_loop(listener: Listener)
   : Unit / NetTcp + Console + Spawn + Actor[SessionMsg]
 = match NetTcp.accept(listener) {
@@ -142,12 +136,11 @@ fn root() : Unit / Spawn + Link + Cancel + NetTcp + Console = {
   }
 }
 
-# Top: hand root to run_app. Since kaikai 0.80.0 (R4 reactor),
-# `run_app` spawns root inside a nursery with a sibling
-# signal-waiter; SIGINT/SIGTERM cancels root so its Cancel
-# handlers (mailbox close, restart unwind) run before exit.
-# The `Signal` row entry is the disclosure to the typer that
-# the default Signal handler is installed around `main`.
+# Hand root to run_app: it spawns root inside a nursery with a
+# sibling signal-waiter; SIGINT/SIGTERM cancels root so its Cancel
+# handlers (mailbox close, restart unwind) run before exit. The
+# `Signal` row entry discloses to the typer that the default Signal
+# handler is installed around `main`.
 fn main() : Int / Spawn + Cancel + Console + NetTcp + Link + Signal = {
   app.run_app(root)
   0

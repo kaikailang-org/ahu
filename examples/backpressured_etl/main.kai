@@ -10,23 +10,21 @@
 # witness the back-pressure: the producer never gets more than two
 # sends ahead of the consumer.
 #
-# Why this lives outside `ahu/cell.kai`. `with_cell` internally
-# spawns the cell with the unbounded-mailbox `spawn_actor`, so a
-# cell-driven version cannot exercise `BlockSender` today —
-# `spawn_actor_policy` is an explicit upstream follow-up
-# (`stdlib/actor.kai` §`spawn_actor` v1 simplification). Until
-# that lands, ahu's back-pressure story uses the underlying
-# `with_mailbox_policy` + `spawn` shape directly. The
-# example also doubles as documentation for that gap.
+# Why this lives outside `ahu/cell.kai`. `with_cell` spawns the
+# cell with the unbounded-mailbox `spawn_actor`, so a cell-driven
+# version cannot set `BlockSender`. ahu's back-pressure story
+# therefore uses the underlying `with_mailbox_policy` + `spawn`
+# shape directly; a bounded-mailbox option on cells is a possible
+# follow-up.
 #
 # Coverage:
 #   - `with_mailbox_policy(Bounded(2, BlockSender))` — the
 #     mailbox installed on the main fiber accepts at most two
 #     queued messages before the next `Actor.send` parks.
-#   - `spawn` for the producer side; the producer's
-#     `Actor.send` calls go through main's mailbox, so
-#     back-pressure parks the producer fiber when the slots are
-#     full.
+#   - `spawn_actor` for the producer side, so the producer fiber
+#     has its own `Actor[String]` handler; its `Actor.send` calls
+#     target main's bounded mailbox, so back-pressure parks the
+#     producer fiber when the slots are full.
 #   - Sentinel-driven shutdown (`""` empty string marks end of
 #     stream).
 #   - Deterministic output under the kaikai cooperative
@@ -65,7 +63,7 @@ fn consume_loop(i: Int) : Unit / Actor[String] + Console = {
 fn run() : Unit / Actor[String] + Spawn + Console = {
   let me = Actor.self()
   let lines = ["alpha", "bravo", "charlie", "delta", "echo"]
-  let _ = spawn(() => produce_loop(me, lines, 1))
+  let _ = spawn_actor(() => produce_loop(me, lines, 1))
   consume_loop(1)
 }
 

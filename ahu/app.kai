@@ -1,105 +1,73 @@
-# ahu/app.kai — bootstrap helper.
-# Imported by user code as `import ahu.app`; functions are
-# accessed dotted (`app.run_app(root)`).
-#
-# `run_app(root)` is the canonical entry point for an ahu
-# application: it spawns `root` as a child fiber inside a
-# nursery, runs a sibling signal-waiter that cancels the root
-# on SIGINT or SIGTERM, and lets root's `Cancel` handlers —
-# including cell `cell_done` cleanup — run before the process
-# exits.
-#
-# Why this shape works now:
-#
-#   The kaikai R4 reactor (lnds/kaikai#671, shipped in 0.80.0)
-#   wires `Signal.await()` through the scheduler's poll set on
-#   the signal self-pipe; a fiber parked in `Signal.await()`
-#   yields to siblings instead of freezing the OS thread. R1
-#   (file + sleep + process), R2 (TCP sockets), and R3 (stdin)
-#   shipped earlier and cover the rest of the blocking surface
-#   the root fiber typically reaches. With those four phases
-#   landed, the multiplex spawn-root + spawn-signal-waiter +
-#   cancel-root-on-signal pattern is honest: both fibers
-#   genuinely make progress.
-#
-# Pre-R4 history: `run_app` shipped as a pass-through
-# (`root()`). Wrapping `main` in `run_app` was the migration
-# path, deferring the multiplex to when the reactor caught up.
-# That moment has arrived.
-#
-# Shape:
-#
-#   nursery { n ->
-#     let r = n.spawn(root)              # root fiber
-#     let _ = n.spawn(() => wait_then_cancel(r))  # signal waiter
-#     n.await(r)                         # parks on root
-#   }
-#
-#   - If root finishes first, `n.await(r)` returns normally and
-#     the nursery cancels the signal-waiter on exit.
-#   - If SIGINT/SIGTERM arrives first, the signal-waiter wakes
-#     from `Signal.await()` and calls `Spawn.cancel(r)`. The
-#     cancel reaches root at its next yield point (any effect
-#     op: `NetTcp.accept`, `Actor.recv`, `Stdout.print`, etc.),
-#     root unwinds running its `Cancel` handlers, and
-#     `n.await(r)` resolves.
-#
-# What `run_app` guarantees:
-#
-#   - The root fiber runs to its natural completion if no
-#     signal arrives.
-#   - SIGINT or SIGTERM, delivered before root completes,
-#     triggers `Spawn.cancel` on the root fiber. The scheduler
-#     delivers the cancel at the root's next yield point. User
-#     cleanup behind `with_cell` / `with_restart` / explicit
-#     `Cancel` handlers runs at unwind.
-#   - The signal-waiter subscribes to both SIGINT and SIGTERM
-#     via `Signal.on`; either one triggers the cancel.
-#
-# What it does **not** do:
-#
-#   - It does not unsubscribe via `Signal.off` after handling.
-#     The process is about to exit; redundant cleanup would
-#     only widen the window for races during teardown.
-#   - It does not multi-signal-coalesce. A second SIGINT while
-#     graceful shutdown is in progress falls through to the
-#     default disposition (immediate exit). This is the
-#     conventional "double-tap to force quit" behaviour.
-#   - It does not wrap `root`'s row. The effect row of `root`
-#     stays `e`; `run_app` threads `Spawn`, `Signal`, and
-#     `Cancel` into its *own* row because the helper opens them.
+#[doc("""
+ahu application bootstrap.
+
+`run_app(root)` is the canonical entry point for an ahu application:
+it spawns `root` as a child fiber inside a nursery, runs a sibling
+signal-waiter that cancels root on SIGINT or SIGTERM, and lets root's
+`Cancel` handlers — including cell and restart cleanup — run before
+the process exits.
+
+The shape:
+
+```kaikai
+nursery { n ->
+  let r = n.spawn(root)                       # root fiber
+  let w = n.spawn(() => wait_and_cancel(r))   # signal waiter
+  n.await(r)                                  # parks on root
+  n.cancel(w)                                 # release the waiter
+}
+```
+
+- If root finishes first, `n.await(r)` returns and `n.cancel(w)`
+  releases the signal-waiter so the nursery can join it. The
+  nursery joins every child it spawned, so the waiter — parked on
+  `Signal.await()` — must be cancelled explicitly or the scope would
+  never return.
+- If a signal arrives first, the waiter wakes from `Signal.await()`
+  and calls `Spawn.cancel(r)`. The cancel reaches root at its next
+  yield point (any effect op), root unwinds running its `Cancel`
+  handlers, `n.await(r)` resolves, and the now-finished waiter makes
+  `n.cancel(w)` a no-op.
+
+Imported as `import ahu.app`; called as `app.run_app(root)`.
+""")]
 
 import spawn
 
-# Run an ahu application root with Signal-based graceful
-# shutdown.
-#
-# `Spawn`, `Signal`, and `Cancel` are added to the row because
-# `run_app` itself uses them; callers must compose them in
-# `main`'s row (the kaikai runtime installs default handlers
-# for all three around `main` when its row mentions them).
-#
-# Stable under the Hanga Roa edition. The signature held across
-# the pre-R4 → R4 upgrade; the body changed from a pass-through
-# to the multiplex, but the committed surface is the signature,
-# not the body, and it does not move within the edition.
+#[doc("""
+Run an ahu application root with signal-based graceful shutdown.
+
+Guarantees:
+
+- Root runs to natural completion if no signal arrives.
+- A SIGINT or SIGTERM delivered before root completes triggers
+  `Spawn.cancel` on the root fiber, delivered at root's next yield
+  point. Cleanup behind `with_cell` / `with_restart` / explicit
+  `Cancel` handlers runs at unwind.
+
+Non-goals: it does not unsubscribe via `Signal.off` after handling
+(the process is exiting), and it does not coalesce a second signal —
+a second SIGINT during graceful shutdown falls through to the default
+disposition (immediate exit), the conventional double-tap to force
+quit.
+
+`Spawn`, `Signal`, and `Cancel` are in the row because `run_app`
+itself opens them; the row of `root` stays `e`. Callers compose the
+three in `main`'s row, where the runtime installs default handlers.
+""")]
 pub fn run_app[e](root: () -> Unit / e) : Unit / Spawn + Signal + Cancel + e =
   nursery { n ->
     let r = n.spawn(root)
-    let _ = n.spawn(() => wait_and_cancel(r))
+    let w = n.spawn(() => wait_and_cancel(r))
     n.await(r)
+    n.cancel(w)
   }
 
-# Subscribe to SIGINT + SIGTERM, park until either arrives,
-# then cancel the root fiber so its Cancel handlers run.
-#
-# Returns `Unit`; the side effect is the cancel. The fiber
-# may itself be cancelled by the nursery if root finishes
-# first (the nursery cancels siblings on exit); in that case
-# the cancel is delivered at the `Signal.await()` park
-# boundary, the function unwinds, and the runtime's default
-# Signal handler tears down the subscribed set on process
-# exit.
+# Subscribe to SIGINT + SIGTERM, park until either arrives, then
+# cancel the root fiber so its Cancel handlers run. The side effect
+# is the cancel. If root finishes first the nursery cancels this
+# fiber at the `Signal.await()` park boundary, and the runtime's
+# default Signal handler tears the subscribed set down on exit.
 fn wait_and_cancel(target: Fiber[Unit]) : Unit / Signal + Spawn + Cancel = {
   Signal.on(SigInt)
   Signal.on(SigTerm)

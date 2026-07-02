@@ -15,15 +15,11 @@ framework that runs underneath manutara and friends.
 >
 > `with_restart` uses `Cancel.raise()` for escalation;
 > `restartable_cell` boots a cell under restart supervision
-> with state-reset semantics; `run_app` is a v1 placeholder
-> until kaikai's reactor lands the Signal-based
-> graceful-shutdown integration.
+> with state-reset semantics; `run_app` spawns root in a
+> nursery and traps `SIGINT`/`SIGTERM` for graceful shutdown.
 >
 > Open upstream issues that affect ahu against the current
 > kaikai release are tracked in `docs/known-regressions.md`.
-> At time of writing, `spawn_actor` (kaikai#570) regressed
-> in kaikai 0.56.x and that puts tier1 (run-and-diff) in red;
-> tier0 (compile-only) remains green at 13 fixtures.
 >
 > **Origin (2026-05-02 earlier):** This document was pivoted
 > from an OTP-style draft to the current three-layer shape.
@@ -142,8 +138,7 @@ What ahu adds that OTP does not have:
 
 ## The substrate kaikai provides
 
-ahu builds on these primitives, all already in kaikai's main
-branch as of m8 + the v1 effects work:
+ahu builds on these kaikai primitives:
 
 - `Actor[Msg]` effect — typed mailboxes, `self() / send() /
   receive()` operations.
@@ -202,7 +197,7 @@ recur, not a mandatory shell around every concurrent program.
 nor for lazy streams.** Both live upstream: eager pipelines are
 kaikai's `core.list` helpers plus the `[a..b]` / `|` / `|>`
 sugars; the lazy stream is kaikai's stdlib `stream` module
-(`Stream[t, e]`, push-carrier recipe — issue #801), imported as
+(`Stream[t, e]`), imported as
 `import stream`. ahu's contribution at this layer is the
 canonical pipeline pattern plus fixtures demonstrating both
 shapes with effectful callbacks (`tests/stream_pipeline.kai` for
@@ -212,10 +207,10 @@ The building blocks for the eager pipeline are:
 
 | Piece | Where it lives |
 |---|---|
-| `[a..b]` range list literal | kaikai language (m7b sugar) |
-| `\|` map-pipe (`xs \| f` ≡ `list.map(xs, f)`) | kaikai language (m7b sugar) |
+| `[a..b]` range list literal | kaikai language sugar |
+| `\|` map-pipe (`xs \| f` ≡ `list.map(xs, f)`) | kaikai language sugar |
 | `\|>` apply-pipe | kaikai language |
-| `list.map`, `list.filter`, `list.foldl`, `list.foldr`, `list.foreach`, `list.length`, `list.reverse`, `list.zip`, `list.unzip` | kaikai stdlib `core.list` (closed by `lnds/kaikai#106` in 0.35.x) |
+| `list.map`, `list.filter`, `list.foldl`, `list.foldr`, `list.foreach`, `list.length`, `list.reverse`, `list.zip`, `list.unzip` | kaikai stdlib `core.list` |
 
 Each higher-order helper carries a row-poly callback:
 
@@ -358,12 +353,10 @@ Four things to notice:
    shape of kaikai's `with_mailbox`: the cell's `Pid[Msg]` is
    handed to a body closure rather than returned as a free
    value. This is enforced by kaikai's region-brand walker —
-   user code cannot return a `Pid[Msg]` until full
-   `TyBranded` propagation lands upstream
-   (`fibers-honesty-targets.md` §*Residual m8.x items*; the
-   compiler's `fiber_producer_helpers` allow-list permits
-   `fiber_spawn` / `spawn_actor` / `alloc_for_policy` only).
-   When that gap closes, ahu can additionally expose a free
+   user code cannot return a `Pid[Msg]` until wider `TyBranded`
+   propagation lands upstream (the compiler's fiber-producer
+   allow-list admits only a fixed set of helpers). When that gap
+   closes, ahu can additionally expose a free
    `start_cell : (...) -> Pid[Msg] / Spawn + e` constructor;
    until then `with_cell` is the only cell entry point.
 
@@ -434,10 +427,10 @@ On termination the supervisor consults the policy:
 - `Temporary`: never restart; return Unit cleanly.
 
 When the cumulative restart count reaches `intensity`, the
-supervisor calls `Cancel.raise()`. The kaikai runtime
-(post-`lnds/kaikai#103` / PR #122) converts trap-exit'd child
-`Cancel.raise()` to `"Crashed"` *before* any user-level Cancel
-handler can intercept, so layered supervision composes
+supervisor calls `Cancel.raise()`. The kaikai runtime converts a
+trap-exit'd child's `Cancel.raise()` to `"Crashed"` *before* any
+user-level Cancel handler can intercept, so layered supervision
+composes
 through the standard Cancel/Link channel: a parent supervisor
 watching `with_restart` observes escalation as a `"Crashed"`
 message in its own mailbox, exactly like any other child
@@ -458,9 +451,9 @@ That handler only catches the supervisor's own `Cancel.raise()`
 at the escalation site — never the child's, which trap-exit
 converts at the runtime boundary.
 
-**`RestartLimit` v1 simplification.** Carries only `intensity`.
-The OTP-style sliding-window `period` requires a `Clock` effect
-for timestamp comparison; that arrives in a follow-up lane.
+**`RestartLimit` simplification.** Carries only `intensity`. The
+OTP-style sliding-window `period` requires a `Clock` effect for
+timestamp comparison; that is a follow-up.
 
 **`restartable_cell`** ships alongside `with_restart` — the
 combined helper that boots a cell under restart supervision
@@ -491,11 +484,9 @@ discarded. The composition is:
    trap-exit fires `"Normal"` / `"Crashed"` on the
    supervisor's mailbox. Restart policy applies as usual.
 
-Pre-`lnds/kaikai#104` (closed in 0.36.x), step 2 → step 3
-crashed the runtime: a fiber that was trap-exit'd by its
-parent and held a nested mailbox of a different `Msg` type
-segfaulted on the inner `spawn_actor`. With #104 closed,
-this composition works cleanly. Verified end-to-end by
+A fiber that is trap-exit'd by its parent and holds a nested
+mailbox of a different `Msg` type may call `spawn_actor` inside
+that scope — the composition works cleanly. Verified end-to-end by
 `tests/cross_restartable_cell.kai` (Transient + Normal exit
 → supervisor returns) and
 `tests/cross_restartable_cell_restart.kai` (Permanent + body
@@ -609,8 +600,8 @@ Rationale:
 
 Streams are a first-class layer alongside cells, treated as the
 primary paradigm for data flow rather than a side concern. The
-stream carrier itself lives in the kaikai stdlib (`stream`, issue
-#801) — ahu does not ship a competing implementation — but ahu's
+stream carrier itself lives in the kaikai stdlib (`stream`) — ahu
+does not ship a competing implementation — but ahu's
 design elevates it to Layer 1: the canonical shape for data flow,
 documented and exercised here. For request/response, ETL, and
 event broadcasting (the bulk of what manutara will do), streams
@@ -718,18 +709,17 @@ The pivot does not change this.
    `RestartLimit`, `with_restart`, `restartable_cell`.
    Default limit `5 / 60s`.
 4. **Bootstrap helper.** `app.run_app(root)` (in
-   `ahu/app.kai`, imported as `import ahu.app`). v1 placeholder;
-   the planned shape subscribes to `SIGINT` / `SIGTERM` via the
-   kaikai `Signal` effect, spawns `root` as a child fiber,
-   parks on `Signal.await()` until either signal fires, then
-   cancels the root fiber so its `Cancel` handlers run before
-   the process exits. Type signature when shipped:
+   `ahu/app.kai`, imported as `import ahu.app`). It subscribes to
+   `SIGINT` / `SIGTERM` via the kaikai `Signal` effect, spawns
+   `root` as a child fiber in a nursery alongside a signal-waiter,
+   and on either signal cancels the root fiber so its `Cancel`
+   handlers run before the process exits. On natural root exit the
+   signal-waiter is cancelled so the nursery joins it and returns.
+   Type signature:
    ```kai
-   pub fn run_app[e](root: () -> Unit / Cancel + e)
-     : Unit / Spawn + Signal + Cancel + Console + e
+   pub fn run_app[e](root: () -> Unit / e)
+     : Unit / Spawn + Signal + Cancel + e
    ```
-   The v1 implementation just runs `root` directly. Signal
-   integration follows when kaikai's reactor lands.
 5. **Reference example.** `examples/echo/` — a TCP echo server
    showing all three layers together: streams as the request
    layer (eager today), cells for connection state, restart
@@ -764,7 +754,7 @@ ahu/
   docs/
     design.md            # this document
     roadmap.md
-    lane-experience-*.md
+    known-regressions.md
   kai.toml               # package manifest (name = "ahu")
   ahu/                   # module root — `import ahu.X`
     cell.kai             # Layer 2
@@ -794,202 +784,61 @@ kill -INT $!                                # graceful shutdown
 wait                                        # exit code 0
 ```
 
-**Current status:** tier0 (compile-only) is green at 13 fixtures
-against kaikai 0.56.x. tier1 (run-and-diff) is currently red
-because of a runtime regression in `spawn_actor` upstream
-(`kaikai#570`). See `docs/known-regressions.md` for the open
-upstream issues.
+**Status:** all fixtures compile (tier0) and tier1 (run-and-diff)
+passes under both backends, except `examples/log_demo` — see
+`docs/known-regressions.md`.
 
 ## External dependencies on kaikai
 
-### Closed (as of kaikai 0.36.x)
+ahu is built entirely on upstream kaikai primitives: `Actor[Msg]`,
+`Spawn`, `Cancel`, `Link`, `Monitor`, the mailbox policies, the
+`Signal` and `Clock` effects, the reactor that parks fibers on I/O,
+and the stdlib `stream`, `log`, `time`, `fs`, `os`, and `net`
+modules. Every primitive the shipped layers need is present; the
+reactor parks fibers on `Clock.sleep`, `Signal.await`, file I/O, and
+the `NetTcp` ops, so `with_restart_backoff` and `run_app` are
+cooperative — siblings keep running during a wait.
 
-All blockers from the original design have closed upstream:
+Design-relevant capabilities and what they enable (follow-ups are
+tracked in `docs/roadmap.md`):
 
-1. **Blocking `Actor.receive()` on an empty mailbox.** Closed
-   by kaikai's m8.x runtime (landed v0.4.0; documentation
-   alignment in v0.32.0, kaikai PR #73). A cell parked on
-   `receive` now suspends via `swapcontext` and resumes when a
-   message arrives.
-2. **`BlockSender` mailbox policy delivery.** Same kaikai m8.x
-   work. All four mailbox policies (`Unbounded`, `Bounded(c,
-   DropOldest|DropNewest|BlockSender)`) reach the runtime in
-   v0.32.0. Senders park on the per-mailbox `send_waiter`
-   chain when full and resume when receivers pop a slot.
-3. **Region-brand for `Pid[Msg]` flowing through sum-type
-   payloads.** Closed by kaikai PR #74 / issue #71 option (a)
-   in v0.34.0 — the deep `TyBranded` walker now correctly
-   detects sum-payload escape and admits the legitimate
-   ahu/stdlib patterns.
-4. **`core.list` higher-order helpers.** Closed by
-   `lnds/kaikai#106` / PR #113 in 0.35.x. `core.list.map` /
-   `filter` / `foldl` / `foldr` / `foreach` / `length` /
-   `reverse` / `zip` / `unzip` all ship with row-poly
-   callbacks. Layer 1's pipeline shape ships against this
-   without ahu adding a stream module — see §Layer 1.
-5. **NetTcp v1.** Shipped in kaikai v0.33.0
-   (`stdlib/net/tcp.kai`). The stdlib `stream` carrier already
-   exists (issue #801); a `from_listener(port)` source wrapping
-   the `NetTcp` ops is the remaining upstream gap — it lands in
-   the stdlib `stream` module, not in ahu — see §Layer 1 and
-   `docs/roadmap.md` §*Layer 1 — Streams*.
-6. **trap-exit beats outer Cancel handler.** Closed by kaikai
-   PR #122 / `lnds/kaikai#103` in 0.36.0 — the runtime now
-   converts a trap-exit'd child's `Cancel.raise()` to
-   `"Crashed"` *before* any user-level Cancel handler can
-   intercept. ahu's `with_restart` reverted from the
-   `Outcome` workaround to BEAM-faithful `Cancel.raise()`
-   for escalation; layered supervision composes through the
-   standard Link/trap-exit channel.
-7. **Nested mailbox + trap-exit + `spawn_actor` segfault.**
-   Closed by `lnds/kaikai#104`. The runtime bookkeeping for
-   `mailbox_assign_owner` under nested `with_mailbox` scopes
-   while a fiber is trap-exit'd no longer crashes. Unblocked
-   `restartable_cell` (combined Layer 2 + Layer 3 helper).
-8. **`Signal` effect for graceful shutdown.** Closed by
-   `lnds/kaikai#107` / PR #116 in 0.36.x — `Signal.on(sig)`
-   subscribes to `SigInt` / `SigTerm` / etc., `Signal.await()`
-   parks until any subscribed signal fires. Will unblock the
-   full `run_app` bootstrap once integrated.
+- **Union types** (`type T = A | B | C` as a true union, with
+  `bind : Type` narrowing) let a cell mailbox be composed from
+  per-feature message types without wrapper sums, and pipeline or
+  supervisor error types be composed from per-stage errors.
+- **`Map[K, V]`** is an AVL carrier with `m[k]` indexing sugar — the
+  carrier a per-nursery `Registry` capability would use (Decision 4).
+- **`stdlib/fs/file`** (`read_file` / `write_file` / `append`) backs
+  `ahu.log` sinks and any cell that persists snapshot state;
+  **`stdlib/os/env`** backs a future `run_app` config loader.
 
-### Newly available
+Open shape questions the design leaves to usage data rather than
+pre-emptive commitment:
 
-Features that landed upstream more recently. These do not
-retrofit existing components; they enable potential follow-up
-work tracked in `docs/roadmap.md`:
+- **A free `start_cell : ... -> Pid[Msg]` constructor.** The
+  region-brand walker admits only a fixed set of fiber-producing
+  helpers, so ahu ships `with_cell(initial, step, body)` (mirroring
+  `with_mailbox`) as the canonical entry point; a free `start_cell`
+  waits on wider `TyBranded` propagation upstream.
+- **Structured `with_cell` shutdown.** When `body` returns the
+  cell's fiber may still be alive, so a final message sent right
+  before the body returns may not be processed before the program
+  exits; `examples/counter/main.out.expected` reflects this
+  honestly.
+- **A cell fiber does not inherit an effect handler installed
+  outside it.** A cell can perform only effects handled within its
+  own fiber (`Actor`, plus the native `Console` leaves); logging
+  directly from a cell step is unsupported — see `examples/log_demo`.
+- **A unified `ChildOutcome[E]` over Link/trap-exit + a typed error
+  result.** A parent observes a child through two channels today
+  (`"Normal"` / `"Crashed"` strings on a trap-exit'd mailbox, and any
+  `Result[E, T]` the child returns); union types make a unified
+  `type ChildOutcome[E] = Normal | Crashed | Errored(E)` expressible.
+  Whether to adopt it or keep the BEAM-style two-channel split is a
+  decision for usage data.
 
-1. **`stdlib/fs/file` v1.** `fs.file.read_file`,
-   `fs.file.write_file`, `fs.file.append`. Tier S1 #1 of
-   `kaikai/docs/stdlib-roadmap.md`, motivated explicitly by ahu
-   (logging, supervisor checkpoints). `fs.dir.*` and `fs.path.*`
-   are doc-only stubs pending runtime primitives + the m14
-   module rename. **Unlocks**: `ahu.log` structured logging,
-   any future cell that persists snapshot state.
-2. **`stdlib/os/env` + `os/args`.** `env.get(name) :
-   Option[String]`, `args.argv() : [String]`. Partial Tier S1 #2
-   — `set_var` / `unset_var` / `vars` and `argv[0]` are blocked
-   by `lnds/kaikai#127`; the entire `Process` family is blocked
-   by `lnds/kaikai#126`. **Unlocks**: `run_app` config loader
-   (read `PORT` / `AHU_LOG_LEVEL` etc. on startup, OTP analogue
-   of `:application.get_env/2`).
-3. **`Clock` default handler in `stdlib/time.kai`.**
-   `time.now()` / `time.monotonic()` / `time.sleep(d)` work
-   without the caller installing a handler. **Unlocks**:
-   `with_restart` with backoff (sleep between retries).
-   The OS-thread-blocking cliff that was open at first
-   landing has since closed: kaikai's R1 reactor (file +
-   sleep + process) parks the fiber on `Clock.sleep`
-   instead of the OS thread, so other fibers under the
-   same scheduler keep running during a backoff.
-4. **`m[k]` indexing sugar + `Map[K, V]` AVL carrier.**
-   `e1[e2]` over `Map[K, V]` lowers to `map_get(e1, e2) :
-   Option[V]`; lookup/insert/remove are now O(log n). The
-   kaikai changelog calls this out explicitly: *"Closes the
-   unblock for ahu's Registry primitive"*. **Unlocks**: the
-   per-nursery `Registry` capability (Decision 4) no longer
-   has to wait on a better map carrier.
-5. **Multi-arg `match` sugar.** `match a, b { p1, p2 -> body
-   | ... }` for 2 ≤ N ≤ 4. **Impact**: stylistic — cell `step`
-   functions and Layer 1 stream combinators that match on
-   `(state, msg)` pairs can drop the synthetic tuple wrapper.
-   No API change.
-6. **LLVM backend Phase 2 unbox mirror (kaikai #87).**
-   `--emit=llvm` now emits raw `i64` / `double` for hot
-   numeric loops, matching the C backend's Tier 2.5 unbox. Was
-   IR-shape-correct before but boxed every value. **Impact**:
-   counter / accumulator cells with primitive payloads benefit
-   transparently when ahu compiles via `--emit=llvm`; relevant
-   for any future benchmarking work and load-bearing for a
-   future multi-thread scheduler integration.
-7. **Mailbox helper RC discipline (kaikai #82 audit).**
-   `mailbox_send` / `_recv` / `_alloc_bounded` /
-   `_assign_owner` / `_free` now decref correctly under
-   Perceus. Pre-fix `mailbox_send` leaked one ref per call.
-   **Impact**: long-running cells under high message volume
-   no longer accumulate refcount leaks. The Tier 1 #2
-   ("runtime-efficient") footnote in `docs/roadmap.md` moves
-   closer to holding without asterisks.
-8. **Union types (kaikai #187).** `type T = A | B | C` now
-   means union of types, not only nominal sum. Components can
-   be pre-existing types (records, sums, primitives, other
-   unions) or auto-declared at first mention. Implicit upcast
-   `T <: U` (one step) and `bind : Type` narrowing patterns
-   shipped together. **No retrofit needed in shipped
-   components**: the three sum types ahu already exposes
-   (`RestartPolicy`, `RestartLimit`, `StepResult`) parse and
-   behave unchanged under the unified model — kaikai's release
-   explicitly confirms *"every `type T = A | B | ...` in
-   stdlib worked unmodified through all five phases"*.
-   **Unlocks**: composing cell mailbox types out of per-feature
-   message types without wrapper sums (e.g.
-   `type CombinedMsg = CounterMsg | LoggingMsg | AdminMsg`
-   with `bind : Type` arms delegating to per-layer handlers);
-   composing pipeline error types out of per-stage errors for
-   `Flow.recover_with`; composing `Registry` errors
-   (`LookupError | RegisterError`); composing telemetry
-   events (`CellEvent | StreamEvent`) for a future
-   `Telemetry` effect. The motivating use case in the kaikai
-   doc — DDD bounded-context error composition — maps
-   directly onto ahu's per-layer error story.
-
-### Open watch items (not confirmed gaps)
-
-Items the implementation passes did NOT exercise but the
-design depends on. Verification arrives whenever a lane lands
-that touches the relevant component:
-
-1. **Free `start_cell : ... -> Pid[Msg]` constructor.** Kaikai's
-   region-brand walker today consults a hardcoded allow-list
-   (`fiber_producer_helpers` in
-   `kaikai/stage2/compiler.kai`: `fiber_spawn`,
-   `spawn_actor`, `alloc_for_policy`) for which functions may
-   return `Pid[Msg]` / `Fiber[T]`. User-code helpers — including
-   ahu's — are rejected. ahu ships `with_cell(initial, step,
-   body)` as the canonical entry point (mirroring
-   `with_mailbox`'s shape); a free `start_cell` form is added
-   once full `TyBranded(Ty, BrandId)` propagation lands
-   upstream (`docs/fibers-honesty-targets.md` §*Residual m8.x
-   items*). Not yet filed as a concrete issue — the right
-   shape needs a concrete proposal.
-2. **Structured `with_cell` shutdown.** When `body` returns,
-   the cell's fiber is still alive — the kaikai `nursery`
-   helper is currently a typed pass-through
-   (`stdlib/spawn.kai`: *"the nursery body itself does not
-   yet implement the structured cancel-on-fail-and-rethrow
-   semantics"*). ahu's `with_cell` therefore lets the cell
-   outlive the body in v1; any final messages (e.g. a `Stop`
-   sent right before the body returns) may not be processed
-   before `main` exits. The `examples/counter/main.out.expected`
-   reflects this honestly. Closes when the kaikai nursery
-   wraps `Spawn` and observes child terminations through
-   `Link`.
-3. **OS-thread-blocking primitives under v1 scheduler.**
-   *Closed.* The reactor shipped in three phases — R1
-   (file + sleep + process), R2 (TCP sockets), R3 (stdin)
-   — and now parks the fiber rather than the OS thread on
-   `Clock.sleep`, `Signal.await`, blocking file I/O, and
-   the six `NetTcp` ops. `with_restart_backoff` already
-   exercises this: the example fixture interleaves with
-   other fibers during the backoff window. ahu's `run_app`
-   stays pass-through pending its own Signal-multiplex
-   upgrade — the constraint is no longer the scheduler,
-   it is that the upgrade has not been written.
-4. **Unified `ChildOutcome[E]` over Link/trap-exit + typed
-   error result.** Today a parent observes a child through
-   two distinct channels: `"Normal"` / `"Crashed"` strings
-   delivered to a trap-exit'd parent's mailbox (runtime
-   contract from Link), and any `Result[E, T]` the child
-   chose to return on the normal path. Now that union types
-   ship (kaikai #187), a unified shape is expressible:
-   `type ChildOutcome[E] = Normal | Crashed | Errored(E)`,
-   with `bind : Type` arms delegating per case. Whether to
-   adopt this for a future supervisor helper, or keep the
-   two-channel split that mirrors BEAM, is a decision to take
-   with usage data — not pre-emptively. Filed as a watch item,
-   not a commitment.
-
-The design lane does not patch any of these — gaps are surfaced
-as kaikai issues coordinated separately.
+Gaps are surfaced as kaikai issues coordinated separately, not
+patched from this repository.
 
 ## Not goals
 
