@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs describe the real versioning model.** Reconciled the stale
+  "repository version stays `0.0.1` indefinitely" claim in `README`,
+  `docs/roadmap.md`, and `CLAUDE.md` with reality: ahu is versioned
+  with semver and releases are cut with commitizen. Components still
+  advance by state rather than milestones — the two are orthogonal.
+  Also corrected the fixture count (20 → 21) in the README.
+
 ## [0.2.0] - 2026-07-02
 
 ### Added
