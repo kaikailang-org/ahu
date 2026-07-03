@@ -29,10 +29,14 @@
 #
 # Determinism note: the stdlib default `Log` handler prefixes
 # every line with an ISO 8601 timestamp that varies per run. This
-# example installs a captured-to-stdout `Log` handler at the
-# outermost layer so the golden diff stays stable across runs.
-# A real application running under `ahu.app.run_app` would let
-# the default handler print to stderr untouched.
+# example installs a captured-to-stdout `Log` handler instead so
+# the golden diff stays stable across runs. Effect handlers are
+# per-fiber in kaikai — a handler installed in a parent fiber is
+# not visible inside fibers it spawns — so each fiber that logs
+# installs the handler at its own root (`with_stdout_log` below):
+# the supervisor fiber, each restarted driver fiber, and the
+# cell's step. A real application running under `ahu.app.run_app`
+# would let the default handler print to stderr untouched.
 
 import spawn
 import actor
@@ -46,6 +50,20 @@ type JobMsg
   | Stats(Pid[JobMsg])        # request: send back current count
   | StatsReply(Int)            # reply variant; rides the same mailbox
 
+# Deterministic `Log` capture for the current fiber: renders each
+# op as "LEVEL line" on stdout. Installed once per logging fiber
+# (see the determinism note above).
+fn with_stdout_log[R, e](f: () -> R / Log + e) : R / Console + e =
+  handle {
+    f()
+  } with Log {
+    debug(m, resume) -> { Stdout.print("DEBUG " ++ m); resume(()) }
+    info(m, resume)  -> { Stdout.print("INFO  " ++ m); resume(()) }
+    warn(m, resume)  -> { Stdout.print("WARN  " ++ m); resume(()) }
+    error(m, resume) -> { Stdout.print("ERROR " ++ m); resume(()) }
+    return(x) -> x
+  }
+
 # Cell step: counts processed jobs and replies on demand. Emits a
 # structured log per Job. State is the count.
 # Note: the step's row declares `Cancel` even though `job_step`
@@ -55,8 +73,8 @@ type JobMsg
 # raises Cancel, so the step's signature has to accept the same
 # row. One-line accommodation, not a redesign of either side.
 fn job_step(processed: Int, msg: JobMsg)
-  : StepResult[Int] / Actor[JobMsg] + Log + Cancel
-= match msg {
+  : StepResult[Int] / Actor[JobMsg] + Console + Cancel
+= with_stdout_log(() => match msg {
     Job(id) -> {
       log.info_kv("job processed", [
         IntField("id", id),
@@ -69,13 +87,13 @@ fn job_step(processed: Int, msg: JobMsg)
       cell.keep(processed)
     }
     StatsReply(_) -> cell.keep(processed)  # incoming reply; ignore
-  }
+  })
 
 # Driver: enqueues two jobs, asks for stats, prints the result,
 # then crashes via Cancel. The supervisor will restart it.
 fn fragile_driver(pid: Pid[JobMsg])
-  : Unit / Actor[JobMsg] + Log + Cancel
-= {
+  : Unit / Actor[JobMsg] + Console + Cancel
+= with_stdout_log(() => {
   log.info_kv("driver cycle starting", [])
   Actor.send(pid, Job(101))
   Actor.send(pid, Job(102))
@@ -90,12 +108,12 @@ fn fragile_driver(pid: Pid[JobMsg])
   }
   log.warn_kv("driver crashing", [StringField("reason", "simulated fault")])
   Cancel.raise()
-}
+})
 
 # Body passed to with_restart_backoff. Opens the cell's mailbox,
 # installs the cell, runs the driver against it.
 fn body(parent: Pid[String])
-  : Unit / Actor[String] + Spawn + Link + Log + Cancel
+  : Unit / Actor[String] + Spawn + Link + Console + Cancel
 = {
   Link.link(parent)
   with_mailbox {
@@ -103,32 +121,25 @@ fn body(parent: Pid[String])
   }
 }
 
-fn supervised() : Unit / Spawn + Link + Cancel + Clock + Log = {
-  log.info_kv("supervisor starting", [
-    StringField("policy", "Permanent"),
-    IntField("limit", 3),
-    IntField("backoff_ms", 1)
-  ])
-  with_mailbox {
-    handle {
-      restart.with_restart_backoff(Permanent, Limit(3), millis(1), body)
-    } with Cancel {
-      raise(resume) -> log.error_kv("supervisor escalated", [
-        StringField("reason", "intensity exhausted")
-      ])
+fn supervised() : Unit / Spawn + Link + Cancel + Clock + Console =
+  with_stdout_log(() => {
+    log.info_kv("supervisor starting", [
+      StringField("policy", "Permanent"),
+      IntField("limit", 3),
+      IntField("backoff_ms", 1)
+    ])
+    with_mailbox {
+      handle {
+        restart.with_restart_backoff(Permanent, Limit(3), millis(1), body)
+      } with Cancel {
+        raise(resume) -> log.error_kv("supervisor escalated", [
+          StringField("reason", "intensity exhausted")
+        ])
+      }
     }
-  }
-}
+  })
 
 fn main() : Int / Spawn + Link + Cancel + Console + Mutable + Clock = {
-  let _ = handle {
-    supervised()
-  } with Log {
-    debug(m, resume) -> { Stdout.print("DEBUG " ++ m); resume(()) }
-    info(m, resume)  -> { Stdout.print("INFO  " ++ m); resume(()) }
-    warn(m, resume)  -> { Stdout.print("WARN  " ++ m); resume(()) }
-    error(m, resume) -> { Stdout.print("ERROR " ++ m); resume(()) }
-    return(x) -> x
-  }
+  supervised()
   0
 }
