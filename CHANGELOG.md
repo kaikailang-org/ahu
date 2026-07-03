@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`examples/log_demo` installs its `Log` handler per fiber.** Effect
+  handlers are fiber-local in kaikai: a handler installed in a parent
+  fiber is not visible inside fibers it spawns. The example previously
+  installed one captured-to-stdout `Log` handler at the outermost
+  layer, which left the driver and cell fibers without a handler at
+  runtime. Each logging fiber now installs the handler at its own root
+  (`with_stdout_log`), keeping the golden output identical.
+
 ### Changed
 
 - **Docs describe the real versioning model.** Reconciled the stale
