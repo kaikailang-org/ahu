@@ -1,0 +1,40 @@
+# tests/restart_transient_fault.kai — Transient restarts on a runtime fault.
+#
+# Coverage: the Transient policy against a body that terminates by a
+# runtime trap (a division by zero), not by `Cancel.raise()`. Trap-exit
+# delivers "Trapped: <message>" for a runtime fault, distinct from the
+# "Crashed" delivered for an escalated cancel. Transient must treat both
+# as a crash: the body runs `intensity` times, then the supervisor
+# escalates via Cancel.
+#
+# Regression guard: a Transient policy that only matched the literal
+# "Crashed" gave up on the first real fault, returning cleanly instead
+# of restarting — inverting the policy's purpose. The divisor is routed
+# through `opaque_zero` so the fault is a genuine runtime trap rather
+# than a constant the compiler could fold away.
+
+import actor
+import spawn
+import ahu.restart
+
+fn opaque_zero(n: Int) : Int = n - n
+
+fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console = {
+  Link.link(parent)
+  Stdout.print("body: up, dividing")
+  Stdout.print(int_to_string(10 / opaque_zero(3)))
+}
+
+fn run() : Unit / Actor[String] + Spawn + Link + Console = {
+  handle {
+    restart.with_restart(Transient, Limit(3), body)
+    Stdout.print("supervisor: returned (fault treated as final)")
+  } with Cancel {
+    raise(resume) -> Stdout.print("supervisor: escalated")
+  }
+}
+
+fn main() : Int / Console + Spawn + Link = {
+  with_mailbox { run() }
+  0
+}
