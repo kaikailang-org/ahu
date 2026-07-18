@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-18
+
 ### Fixed
 
 - **`Transient` restarts on a runtime fault, not only on an escalated
