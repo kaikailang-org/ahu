@@ -3,8 +3,13 @@ ahu Layer 3 — restart helpers.
 
 `with_restart(policy, limit, body)` spawns `body` in a child fiber
 and watches its termination via kaikai's trap-exit mechanism: when
-the child terminates, the supervisor's mailbox receives `"Normal"`
-or `"Crashed"`, and the policy decides whether to respawn or return.
+the child terminates, the supervisor's mailbox receives one of three
+reason shapes — `"Normal"` for a clean return, `"Crashed"` for an
+escalated `Cancel.raise()`, or `"Trapped: <message>"` for a runtime
+fault such as a division by zero — and the policy decides whether to
+respawn or return. Both abnormal shapes count as a crash, so
+`Transient` restarts on a runtime fault as well as on an escalated
+cancel; only a `"Normal"` exit is final.
 Trap-exit is used rather than `await` + a `try` block because a body
 that panics inside its own fiber cannot be caught by the parent;
 trap-exit turns the child's termination into a message the parent
@@ -142,6 +147,15 @@ pub fn restartable_cell[State, Msg, e](
     with_mailbox { cell.with_cell(initial, step, driver) }
   })
 
+# A supervised body "crashed" when it terminated abnormally rather
+# than returning. Trap-exit delivers three reason shapes: `"Normal"`
+# for a clean return, `"Crashed"` for an escalated `Cancel.raise()`,
+# and `"Trapped: <message>"` for a runtime fault (a panic such as a
+# division by zero). Both abnormal shapes are crashes; only `"Normal"`
+# is a clean exit. Transient restarts on a crash, not on a clean exit.
+fn is_crash(reason: String) : Bool =
+  reason == "Crashed" or string.starts_with(reason, "Trapped:")
+
 # Restart dispatcher. Spawns the body, parks on the supervisor
 # mailbox for its termination reason, then applies the policy. At
 # the intensity limit it raises Cancel so an outer supervisor
@@ -161,10 +175,12 @@ fn restart_loop[e](
     let reason = Actor.receive()
     match policy {
       Permanent -> restart_loop(policy, limit, body, parent, count + 1)
-      Transient -> match reason {
-        "Crashed" -> restart_loop(policy, limit, body, parent, count + 1)
-        _         -> ()
-      }
+      Transient ->
+        if is_crash(reason) {
+          restart_loop(policy, limit, body, parent, count + 1)
+        } else {
+          ()
+        }
       Temporary -> ()
     }
   }
@@ -190,10 +206,12 @@ fn restart_loop_backoff[e](
     let reason = Actor.receive()
     match policy {
       Permanent -> restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
-      Transient -> match reason {
-        "Crashed" -> restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
-        _         -> ()
-      }
+      Transient ->
+        if is_crash(reason) {
+          restart_loop_backoff(policy, limit, backoff, body, parent, count + 1)
+        } else {
+          ()
+        }
       Temporary -> ()
     }
   }

@@ -8,6 +8,17 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ### Fixed
 
+- **`Transient` restarts on a runtime fault, not only on an escalated
+  cancel.** Trap-exit delivers three reason shapes — `"Normal"` for a
+  clean return, `"Crashed"` for an escalated `Cancel.raise()`, and
+  `"Trapped: <message>"` for a runtime fault such as a division by
+  zero. `with_restart` and `with_restart_backoff` decided restarts by
+  matching the literal `"Crashed"`, so a `Transient` body that hit a
+  genuine fault fell through as if it had exited cleanly — inverting
+  the policy, which is meant to restart on a crash and stop only on a
+  clean exit. A shared `is_crash` predicate now treats both `"Crashed"`
+  and any `"Trapped:"`-prefixed reason as a crash. `Permanent` and
+  `Temporary` are unchanged.
 - **`examples/log_demo` installs its `Log` handler per fiber.** Effect
   handlers are fiber-local in kaikai: a handler installed in a parent
   fiber is not visible inside fibers it spawns. The example previously

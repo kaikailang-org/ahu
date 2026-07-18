@@ -831,11 +831,20 @@ pre-emptive commitment:
   directly from a cell step is unsupported — see `examples/log_demo`.
 - **A unified `ChildOutcome[E]` over Link/trap-exit + a typed error
   result.** A parent observes a child through two channels today
-  (`"Normal"` / `"Crashed"` strings on a trap-exit'd mailbox, and any
-  `Result[E, T]` the child returns); union types make a unified
+  (trap-exit reason strings on the mailbox, and any `Result[E, T]`
+  the child returns); union types make a unified
   `type ChildOutcome[E] = Normal | Crashed | Errored(E)` expressible.
   Whether to adopt it or keep the BEAM-style two-channel split is a
   decision for usage data.
+
+  The trap-exit reason is one of three string shapes: `"Normal"` for
+  a clean return, `"Crashed"` for an escalated `Cancel.raise()`, and
+  `"Trapped: <message>"` for a runtime fault (a panic such as a
+  division by zero). Restart helpers treat both abnormal shapes as a
+  crash — `Transient` restarts on either, and only `"Normal"` is a
+  clean exit. The taxonomy is an upstream contract ahu depends on; if
+  it drifts, the `is_crash` predicate in `ahu/restart.kai` is the one
+  place that follows it.
 
 Gaps are surfaced as kaikai issues coordinated separately, not
 patched from this repository.
