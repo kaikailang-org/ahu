@@ -1,0 +1,37 @@
+#[doc("Backend-neutral queue adapter capability.")]
+
+import time
+
+import anga.job
+
+#[doc("A recoverable queue backend failure.")]
+pub type AdapterError
+  = AdapterUnavailable(String)
+  | AdapterRejected(String)
+  | AdapterUnsupported(String)
+
+#[doc("Evidence that an adapter accepted a job.")]
+pub type Receipt = { adapter: String, job_id: String }
+
+#[doc("Minimum queue backend contract, modelled after Active Job's abstract adapter.")]
+pub effect QueueAdapter {
+  enqueue(value: job.Job) : Result[Receipt, AdapterError]
+  enqueue_at(value: job.Job, at: time.WallTime) : Result[Receipt, AdapterError]
+}
+
+#[doc("Builds an adapter acceptance receipt.")]
+pub fn receipt(adapter: String, job_id: String) : Receipt = Receipt { adapter: adapter, job_id: job_id }
+
+#[doc("Submits immediately or at the job's configured schedule.")]
+pub fn submit(value: job.Job) : Result[Receipt, AdapterError] / QueueAdapter = match job.scheduled_at(value) {
+  None -> QueueAdapter.enqueue(value)
+  Some(at) -> QueueAdapter.enqueue_at(value, at)
+}
+
+fn submit_all_loop(values: [job.Job], acc: [Result[Receipt, AdapterError]]) : [Result[Receipt, AdapterError]] / QueueAdapter = match values {
+  [] -> list_reverse(acc)
+  [value, ...rest] -> submit_all_loop(rest, [submit(value), ...acc])
+}
+
+#[doc("Submits jobs in order through the minimum contract and keeps each result.")]
+pub fn submit_all(values: [job.Job]) : [Result[Receipt, AdapterError]] / QueueAdapter = submit_all_loop(values, [])

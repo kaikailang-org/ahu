@@ -1,0 +1,75 @@
+import encoding.json
+
+import time
+
+import anga.adapter
+
+import anga.job
+
+fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 0 }
+
+fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job specification")
+}
+
+fn expect_job(value: Result[job.Job, job.JobError]) : job.Job = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job")
+}
+
+fn immediate(id: String) : job.Job = expect_job(job.materialize_with(expect_spec(job.new("cleanup", [JStr(id)])), id, wall(100)))
+
+fn delayed(id: String) : job.Job = expect_job(job.materialize_with(job.wait_until(expect_spec(job.new("cleanup", [JStr(id)])), wall(200)), id, wall(100)))
+
+test "submit selects enqueue or enqueue_at from the job schedule" {
+  let now_result = handle {
+    adapter.submit(immediate("now"))
+  } with QueueAdapter {
+    enqueue(value, resume) -> {
+      assert job.id(value) == "now"
+      resume(Ok(adapter.receipt("memory", job.id(value))))
+    }
+    enqueue_at(unexpected_job, unexpected_at, resume) -> {
+      let _ = unexpected_job
+      let _ = unexpected_at
+      resume(Err(AdapterRejected("unexpected scheduled call")))
+    }
+  }
+  assert match now_result {
+    Ok(found) -> found.job_id == "now"
+    Err(_) -> false
+  }
+  let later_result = handle {
+    adapter.submit(delayed("later"))
+  } with QueueAdapter {
+    enqueue(unexpected_job, resume) -> {
+      let _ = unexpected_job
+      resume(Err(AdapterRejected("unexpected immediate call")))
+    }
+    enqueue_at(value, at, resume) -> {
+      assert at.secs == 200
+      resume(Ok(adapter.receipt("memory", job.id(value))))
+    }
+  }
+  assert match later_result {
+    Ok(found) -> found.job_id == "later"
+    Err(_) -> false
+  }
+}
+
+test "submit_all preserves order and individual adapter results" {
+  let results = handle {
+    adapter.submit_all([immediate("one"), immediate("two")])
+  } with QueueAdapter {
+    enqueue(value, resume) -> resume(Ok(adapter.receipt("test", job.id(value))))
+    enqueue_at(value, at, resume) -> {
+      let _ = at
+      resume(Ok(adapter.receipt("test", job.id(value))))
+    }
+  }
+  assert list.map(results, result => match result {
+    Ok(found) -> found.job_id
+    Err(_) -> "error"
+  }) == ["one", "two"]
+}

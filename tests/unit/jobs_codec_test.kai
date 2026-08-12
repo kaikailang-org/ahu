@@ -1,0 +1,57 @@
+import encoding.json
+
+import time
+
+import anga.codec
+
+import anga.job
+
+fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 7 }
+
+fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job specification")
+}
+
+fn expect_job(value: Result[job.Job, job.JobError]) : job.Job = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job")
+}
+
+fn expect_decoded(value: Result[job.Job, codec.CodecError]) : job.Job = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected decoded job")
+}
+
+test "job codec round trips the canonical adapter document" {
+  let base = expect_spec(job.new("mail.deliver", [JStr("msg-1"), JNum(2)]))
+  let queued = expect_spec(job.on_queue(base, "mailers"))
+  let prioritized = expect_spec(job.with_priority(queued, 4))
+  let spec = job.wait_until(prioritized, wall(300))
+  let materialized = expect_job(job.materialize_with(spec, "temp", wall(100)))
+  let original = expect_job(job.restore("job-1", "mail.deliver", job.arguments(materialized), "mailers", 4, wall(100), Some(wall(300)), 2))
+  let restored = expect_decoded(codec.decode(codec.encode(original)))
+  assert job.id(restored) == "job-1"
+  assert job.worker(restored) == "mail.deliver"
+  assert job.arguments(restored) == [JStr("msg-1"), JNum(2)]
+  assert job.queue_name(restored) == "mailers"
+  assert job.priority(restored) == 4
+  assert job.executions(restored) == 2
+  assert job.enqueued_at(restored).nanos == 7
+  assert match job.scheduled_at(restored) {
+    Some(found) -> (found.secs == 300) and (found.nanos == 7)
+    None -> false
+  }
+}
+
+test "job codec rejects missing fields and invalid restored values" {
+  assert match codec.decode(JObj([])) {
+    Err(InvalidDocument(_)) -> true
+    _ -> false
+  }
+  let invalid = JObj([Pair { fst: "id", snd: JStr("") }, Pair { fst: "worker", snd: JStr("cleanup") }, Pair { fst: "arguments", snd: JArr([]) }, Pair { fst: "queue", snd: JStr("default") }, Pair { fst: "priority", snd: JNum(0) }, Pair { fst: "enqueued_at", snd: JObj([Pair { fst: "secs", snd: JNum(1) }, Pair { fst: "nanos", snd: JNum(0) }]) }, Pair { fst: "scheduled_at", snd: JNull }, Pair { fst: "executions", snd: JNum(0) }])
+  assert match codec.decode(invalid) {
+    Err(InvalidJob(_)) -> true
+    _ -> false
+  }
+}

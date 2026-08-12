@@ -1,0 +1,77 @@
+import encoding.json
+
+import time
+
+import anga.job
+
+fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 0 }
+
+fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job specification")
+}
+
+fn expect_job(value: Result[job.Job, job.JobError]) : job.Job = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job")
+}
+
+test "job specifications validate worker queue and priority" {
+  assert match job.new("", []) {
+    Err(InvalidWorkerName(_)) -> true
+    _ -> false
+  }
+  let base = expect_spec(job.new("reports.generate", [JNum(42)]))
+  assert match job.on_queue(base, "bad queue") {
+    Err(InvalidQueueName(_)) -> true
+    _ -> false
+  }
+  assert match job.with_priority(base, -1) {
+    Err(InvalidPriority(_)) -> true
+    _ -> false
+  }
+}
+
+test "a deterministic job preserves scheduling metadata" {
+  let base = expect_spec(job.new("reports.generate", [JNum(42)]))
+  let queued = expect_spec(job.on_queue(base, "reports"))
+  let prioritized = expect_spec(job.with_priority(queued, 3))
+  let spec = job.wait_until(prioritized, wall(200))
+  let value = expect_job(job.materialize_with(spec, "job-1", wall(100)))
+  assert job.id(value) == "job-1"
+  assert job.worker(value) == "reports.generate"
+  assert job.arguments(value) == [JNum(42)]
+  assert job.queue_name(value) == "reports"
+  assert job.priority(value) == 3
+  assert job.enqueued_at(value).secs == 100
+  assert match job.scheduled_at(value) {
+    Some(at) -> at.secs == 200
+    None -> false
+  }
+  assert job.executions(value) == 0
+}
+
+test "wait_for rejects a negative duration and derives an absolute schedule" {
+  let spec = expect_spec(job.new("cleanup", []))
+  assert match job.wait_for(spec, time.seconds(-1), wall(100)) {
+    Err(InvalidDelay) -> true
+    _ -> false
+  }
+  let delayed = expect_spec(job.wait_for(spec, time.seconds(30), wall(100)))
+  let value = expect_job(job.materialize_with(delayed, "job-2", wall(100)))
+  assert match job.scheduled_at(value) {
+    Some(at) -> at.secs == 130
+    None -> false
+  }
+}
+
+test "restore rejects malformed persisted jobs" {
+  assert match job.restore("", "cleanup", [], "default", 0, wall(100), None, 0) {
+    Err(InvalidJobId) -> true
+    _ -> false
+  }
+  assert match job.restore("job-1", "cleanup", [], "default", 0, wall(100), None, -1) {
+    Err(InvalidExecutionCount) -> true
+    _ -> false
+  }
+}
