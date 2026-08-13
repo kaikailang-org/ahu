@@ -1,0 +1,739 @@
+#[doc("A deterministic, safe parser for the application-oriented YAML 1.2 subset used by kai-yaml.")]
+
+import yaml.errors as yaml_errors
+
+import yaml.value as node
+
+type Line = { number: Int, indent: Int, text: String }
+
+type Parsed = { value: node.YamlValue, rest: [Line] }
+
+type PairParts = { key: String, raw_value: String }
+
+type InlineValue = { value: node.YamlValue, next: Int }
+
+type InlineText = { text: String, next: Int }
+
+type PairValue = { value: node.YamlValue, rest: [Line] }
+
+type BlockCollected = { parts: [String], rest: [Line] }
+
+fn fail(kind: yaml_errors.ParseErrorKind, line_number: Int, column_number: Int, detail: String) : yaml_errors.ParseError = yaml_errors.ParseError { kind: kind, line: line_number, column: column_number, message: detail }
+
+fn indentation(source: String, index: Int, line: Int) : Result[Int, yaml_errors.ParseError] = if index >= string.length(source) {
+  Ok(index)
+} else {
+  match char_at(source, index) {
+    Some(' ') -> indentation(source, index + 1, line)
+    Some('\t') -> Err(fail(InvalidIndentation, line, index + 1, "tabs cannot be used for YAML indentation"))
+    _ -> Ok(index)
+  }
+}
+
+fn prepare_lines(raw_lines: [String], number: Int, acc: [Line]) : Result[[Line], yaml_errors.ParseError] = match raw_lines {
+  [] -> Ok(list.reverse(acc))
+  [raw, ...rest] -> {
+    let width = indentation(raw, 0, number)!
+    let text = string.slice(raw, width, string.length(raw) - width)
+    prepare_lines(rest, number + 1, [Line { number: number, indent: width, text: text }, ...acc])
+  }
+}
+
+fn prepare(source: String) : Result[[Line], yaml_errors.ParseError] {
+  let normalized = source |> string.replace("\r\n", "\n") |> string.replace("\r", "\n")
+  prepare_lines(string.lines(normalized), 1, [])
+}
+
+fn is_space_char(c: Char) : Bool = (c == ' ') or (c == '\t')
+
+fn next_char(source: String, index: Int) : Option[Char] = char_at(source, index + 1)
+
+fn comment_start(source: String, index: Int, quote: Int) : Int = if index >= string.length(source) {
+  string.length(source)
+} else {
+  match char_at(source, index) {
+    None -> string.length(source)
+    Some(c) -> if quote == 1 {
+      if c == '\'' {
+        if next_char(source, index) == Some('\'') {
+          comment_start(source, index + 2, 1)
+        } else {
+          comment_start(source, index + 1, 0)
+        }
+      } else {
+        comment_start(source, index + 1, 1)
+      }
+    } else if quote == 2 {
+      if c == '\\' {
+        comment_start(source, index + 2, 2)
+      } else if c == '"' {
+        comment_start(source, index + 1, 0)
+      } else {
+        comment_start(source, index + 1, 2)
+      }
+    } else if c == '\'' {
+      comment_start(source, index + 1, 1)
+    } else if c == '"' {
+      comment_start(source, index + 1, 2)
+    } else if c == '#' {
+      if index == 0 {
+        index
+      } else {
+        match char_at(source, index - 1) {
+          Some(previous) -> if is_space_char(previous) {
+            index
+          } else {
+            comment_start(source, index + 1, 0)
+          }
+          None -> index
+        }
+      }
+    } else {
+      comment_start(source, index + 1, 0)
+    }
+  }
+}
+
+fn without_comment(source: String) : String = string.slice(source, 0, comment_start(source, 0, 0))
+
+fn semantic(line: Line) : String = string.trim(without_comment(line.text))
+
+fn skip_trivia(lines: [Line]) : [Line] = match lines {
+  [] -> []
+  [line, ...rest] -> if string.is_empty(semantic(line)) {
+    skip_trivia(rest)
+  } else {
+    lines
+  }
+}
+
+fn is_document_marker(text: String) : Bool = (text == "---") or (text == "...")
+
+fn sequence_item(text: String) : Bool = ((text == "-") or string.starts_with(text, "- ")) or string.starts_with(text, "-\t")
+
+fn after_sequence_marker(text: String) : String = if text == "-" {
+  ""
+} else {
+  string.trim(string.slice(text, 1, string.length(text) - 1))
+}
+
+fn mapping_colon(source: String, index: Int, quote: Int, depth: Int) : Option[Int] = if index >= string.length(source) {
+  None
+} else {
+  option.and_then(char_at(source, index), c => if quote == 1 {
+    if c == '\'' {
+      if next_char(source, index) == Some('\'') {
+        mapping_colon(source, index + 2, 1, depth)
+      } else {
+        mapping_colon(source, index + 1, 0, depth)
+      }
+    } else {
+      mapping_colon(source, index + 1, 1, depth)
+    }
+  } else if quote == 2 {
+    if c == '\\' {
+      mapping_colon(source, index + 2, 2, depth)
+    } else if c == '"' {
+      mapping_colon(source, index + 1, 0, depth)
+    } else {
+      mapping_colon(source, index + 1, 2, depth)
+    }
+  } else if c == '\'' {
+    mapping_colon(source, index + 1, 1, depth)
+  } else if c == '"' {
+    mapping_colon(source, index + 1, 2, depth)
+  } else if (c == '[') or (c == '{') {
+    mapping_colon(source, index + 1, 0, depth + 1)
+  } else if (c == ']') or (c == '}') {
+    mapping_colon(source, index + 1, 0, depth - 1)
+  } else if (c == ':') and (depth == 0) {
+    if (index + 1) >= string.length(source) {
+      Some(index)
+    } else {
+      match next_char(source, index) {
+        Some(found) -> if is_space_char(found) {
+          Some(index)
+        } else {
+          mapping_colon(source, index + 1, 0, depth)
+        }
+        None -> Some(index)
+      }
+    }
+  } else {
+    mapping_colon(source, index + 1, 0, depth)
+  })
+}
+
+fn split_pair(source: String) : Option[PairParts] = mapping_colon(source, 0, 0, 0) |> option.map(index => PairParts { key: string.trim(string.slice(source, 0, index)), raw_value: string.trim(string.slice(source, index + 1, (string.length(source) - index) - 1)) })
+
+fn skip_inline_space(source: String, index: Int) : Int = if index >= string.length(source) {
+  index
+} else {
+  match char_at(source, index) {
+    Some(c) -> if is_space_char(c) {
+      skip_inline_space(source, index + 1)
+    } else {
+      index
+    }
+    None -> index
+  }
+}
+
+fn hex_digit(c: Char) : Option[Int] = if (c >= '0') and (c <= '9') {
+  Some(char_to_int(c) - char_to_int('0'))
+} else if (c >= 'a') and (c <= 'f') {
+  Some((char_to_int(c) - char_to_int('a')) + 10)
+} else if (c >= 'A') and (c <= 'F') {
+  Some((char_to_int(c) - char_to_int('A')) + 10)
+} else {
+  None
+}
+
+fn hex_codepoint(source: String, index: Int, remaining: Int, acc: Int) : Option[Int] = if remaining == 0 {
+  Some(acc)
+} else {
+  option.and_then(char_at(source, index), c => option.and_then(hex_digit(c), value => hex_codepoint(source, index + 1, remaining - 1, (acc * 16) + value)))
+}
+
+fn unicode_fragment(codepoint: Int) : String = string.from_chars([int_to_char(codepoint)])
+
+fn escape_value(source: String, index: Int, line: Int) : Result[InlineText, yaml_errors.ParseError] = match char_at(source, index) {
+  None -> Err(fail(InvalidScalar, line, index + 1, "unfinished escape in double-quoted scalar"))
+  Some(c) -> if c == '0' {
+    Ok(InlineText { text: int_to_byte_string(0), next: index + 1 })
+  } else if c == 'a' {
+    Ok(InlineText { text: int_to_byte_string(7), next: index + 1 })
+  } else if c == 'b' {
+    Ok(InlineText { text: int_to_byte_string(8), next: index + 1 })
+  } else if c == 't' {
+    Ok(InlineText { text: "\t", next: index + 1 })
+  } else if c == 'n' {
+    Ok(InlineText { text: "\n", next: index + 1 })
+  } else if c == 'v' {
+    Ok(InlineText { text: int_to_byte_string(11), next: index + 1 })
+  } else if c == 'f' {
+    Ok(InlineText { text: int_to_byte_string(12), next: index + 1 })
+  } else if c == 'r' {
+    Ok(InlineText { text: "\r", next: index + 1 })
+  } else if c == 'e' {
+    Ok(InlineText { text: int_to_byte_string(27), next: index + 1 })
+  } else if c == ' ' {
+    Ok(InlineText { text: " ", next: index + 1 })
+  } else if c == '"' {
+    Ok(InlineText { text: "\"", next: index + 1 })
+  } else if c == '/' {
+    Ok(InlineText { text: "/", next: index + 1 })
+  } else if c == '\\' {
+    Ok(InlineText { text: "\\", next: index + 1 })
+  } else if c == 'N' {
+    Ok(InlineText { text: unicode_fragment(0x85), next: index + 1 })
+  } else if c == '_' {
+    Ok(InlineText { text: unicode_fragment(0xA0), next: index + 1 })
+  } else if c == 'L' {
+    Ok(InlineText { text: unicode_fragment(0x2028), next: index + 1 })
+  } else if c == 'P' {
+    Ok(InlineText { text: unicode_fragment(0x2029), next: index + 1 })
+  } else if ((c == 'x') or (c == 'u')) or (c == 'U') {
+    let digits = if c == 'x' {
+      2
+    } else if c == 'u' {
+      4
+    } else {
+      8
+    }
+    match hex_codepoint(source, index + 1, digits, 0) {
+      Some(codepoint) -> if (codepoint > 0x10FFFF) or ((codepoint >= 0xD800) and (codepoint <= 0xDFFF)) {
+        Err(fail(InvalidScalar, line, index + 1, "invalid Unicode codepoint in escape"))
+      } else {
+        Ok(InlineText { text: unicode_fragment(codepoint), next: (index + 1) + digits })
+      }
+      None -> Err(fail(InvalidScalar, line, index + 1, "invalid hexadecimal escape"))
+    }
+  } else {
+    Err(fail(InvalidScalar, line, index + 1, "unknown escape sequence"))
+  }
+}
+
+fn double_quoted(source: String, index: Int, line: Int, acc: [String]) : Result[InlineText, yaml_errors.ParseError] = if index >= string.length(source) {
+  Err(fail(InvalidScalar, line, index + 1, "unclosed double-quoted scalar"))
+} else {
+  match char_at(source, index) {
+    Some('"') -> Ok(InlineText { text: string.join(list.reverse(acc), ""), next: index + 1 })
+    Some('\\') -> {
+      let escaped = escape_value(source, index + 1, line)!
+      double_quoted(source, escaped.next, line, [escaped.text, ...acc])
+    }
+    Some(_) -> double_quoted(source, index + 1, line, [string.slice(source, index, 1), ...acc])
+    None -> Err(fail(InvalidScalar, line, index + 1, "unclosed double-quoted scalar"))
+  }
+}
+
+fn single_quoted(source: String, index: Int, line: Int, acc: [String]) : Result[InlineText, yaml_errors.ParseError] = if index >= string.length(source) {
+  Err(fail(InvalidScalar, line, index + 1, "unclosed single-quoted scalar"))
+} else {
+  match char_at(source, index) {
+    Some('\'') -> if next_char(source, index) == Some('\'') {
+      single_quoted(source, index + 2, line, ["'", ...acc])
+    } else {
+      Ok(InlineText { text: string.join(list.reverse(acc), ""), next: index + 1 })
+    }
+    Some(_) -> single_quoted(source, index + 1, line, [string.slice(source, index, 1), ...acc])
+    None -> Err(fail(InvalidScalar, line, index + 1, "unclosed single-quoted scalar"))
+  }
+}
+
+fn plain_end(source: String, index: Int) : Int = if index >= string.length(source) {
+  index
+} else {
+  match char_at(source, index) {
+    Some(c) -> if ((c == ',') or (c == ']')) or (c == '}') {
+      index
+    } else {
+      plain_end(source, index + 1)
+    }
+    None -> index
+  }
+}
+
+fn unsupported_plain(text: String) : Option[String] = if string.starts_with(text, "&") {
+  Some("anchors")
+} else if string.starts_with(text, "*") {
+  Some("aliases")
+} else if string.starts_with(text, "!") {
+  Some("tags")
+} else {
+  None
+}
+
+fn resolve_plain(text: String, line: Int, column: Int) : Result[node.YamlValue, yaml_errors.ParseError] = match unsupported_plain(text) {
+  Some(feature) -> Err(fail(UnsupportedFeature(feature), line, column, "YAML #{feature} are not supported by kai-yaml 0.1"))
+  None -> match text {
+    "null" -> Ok(YNull)
+    "Null" -> Ok(YNull)
+    "NULL" -> Ok(YNull)
+    "~" -> Ok(YNull)
+    "true" -> Ok(YBool(true))
+    "True" -> Ok(YBool(true))
+    "TRUE" -> Ok(YBool(true))
+    "false" -> Ok(YBool(false))
+    "False" -> Ok(YBool(false))
+    "FALSE" -> Ok(YBool(false))
+    _ -> match string_to_int(text) {
+      Some(found) -> Ok(YInt(found))
+      None -> match string_to_real(text) {
+        Some(found) -> Ok(YReal(found))
+        None -> Ok(YString(text))
+      }
+    }
+  }
+}
+
+fn duplicate(pairs: [Pair[String, node.YamlValue]], key: String) : Bool = match pairs {
+  [] -> false
+  [pair, ...rest] -> if pair.fst == key {
+    true
+  } else {
+    duplicate(rest, key)
+  }
+}
+
+fn inline_value(source: String, index: Int, line: Int, flow: Bool) : Result[InlineValue, yaml_errors.ParseError] {
+  let start = skip_inline_space(source, index)
+  if start >= string.length(source) {
+    Err(fail(InvalidScalar, line, start + 1, "expected a YAML value"))
+  } else {
+    match char_at(source, start) {
+      Some('"') -> {
+        let parsed = double_quoted(source, start + 1, line, [])!
+        Ok(InlineValue { value: YString(parsed.text), next: parsed.next })
+      }
+      Some('\'') -> {
+        let parsed = single_quoted(source, start + 1, line, [])!
+        Ok(InlineValue { value: YString(parsed.text), next: parsed.next })
+      }
+      Some('[') -> flow_sequence(source, start + 1, line, [])
+      Some('{') -> flow_mapping(source, start + 1, line, [])
+      _ -> {
+        let finish = if flow {
+          plain_end(source, start)
+        } else {
+          string.length(source)
+        }
+        let text = string.trim(string.slice(source, start, finish - start))
+        if string.is_empty(text) {
+          Err(fail(InvalidScalar, line, start + 1, "expected a YAML value"))
+        } else {
+          let parsed = resolve_plain(text, line, start + 1)!
+          Ok(InlineValue { value: parsed, next: finish })
+        }
+      }
+    }
+  }
+}
+
+fn flow_sequence(source: String, index: Int, line: Int, acc: [node.YamlValue]) : Result[InlineValue, yaml_errors.ParseError] {
+  let start = skip_inline_space(source, index)
+  match char_at(source, start) {
+    Some(']') -> Ok(InlineValue { value: YSequence(list.reverse(acc)), next: start + 1 })
+    _ -> {
+      let item = inline_value(source, start, line, true)!
+      let after = skip_inline_space(source, item.next)
+      match char_at(source, after) {
+        Some(',') -> flow_sequence(source, after + 1, line, [item.value, ...acc])
+        Some(']') -> Ok(InlineValue { value: YSequence(list.reverse([item.value, ...acc])), next: after + 1 })
+        _ -> Err(fail(InvalidSyntax, line, after + 1, "expected ',' or ']' in flow sequence"))
+      }
+    }
+  }
+}
+
+fn flow_key_end(source: String, index: Int, quote: Int) : Option[Int] = if index >= string.length(source) {
+  None
+} else {
+  option.and_then(char_at(source, index), c => if quote == 1 {
+    if c == '\'' {
+      if next_char(source, index) == Some('\'') {
+        flow_key_end(source, index + 2, 1)
+      } else {
+        flow_key_end(source, index + 1, 0)
+      }
+    } else {
+      flow_key_end(source, index + 1, 1)
+    }
+  } else if quote == 2 {
+    if c == '\\' {
+      flow_key_end(source, index + 2, 2)
+    } else if c == '"' {
+      flow_key_end(source, index + 1, 0)
+    } else {
+      flow_key_end(source, index + 1, 2)
+    }
+  } else if c == '\'' {
+    flow_key_end(source, index + 1, 1)
+  } else if c == '"' {
+    flow_key_end(source, index + 1, 2)
+  } else if c == ':' {
+    Some(index)
+  } else {
+    flow_key_end(source, index + 1, 0)
+  })
+}
+
+fn parse_key(source: String, line: Int, column: Int) : Result[String, yaml_errors.ParseError] {
+  let key_source = string.trim(source)
+  if string.is_empty(key_source) {
+    Err(fail(InvalidSyntax, line, column, "mapping keys cannot be empty"))
+  } else if key_source == "<<" {
+    Err(fail(UnsupportedFeature("merge keys"), line, column, "YAML merge keys are not supported by kai-yaml 0.1"))
+  } else if string.starts_with(key_source, "?") {
+    Err(fail(UnsupportedFeature("complex keys"), line, column, "complex YAML keys are not supported by kai-yaml 0.1"))
+  } else {
+    match char_at(key_source, 0) {
+      Some('"') -> {
+        let parsed = double_quoted(key_source, 1, line, [])!
+        if skip_inline_space(key_source, parsed.next) == string.length(key_source) {
+          Ok(parsed.text)
+        } else {
+          Err(fail(InvalidSyntax, line, column + parsed.next, "unexpected text after quoted mapping key"))
+        }
+      }
+      Some('\'') -> {
+        let parsed = single_quoted(key_source, 1, line, [])!
+        if skip_inline_space(key_source, parsed.next) == string.length(key_source) {
+          Ok(parsed.text)
+        } else {
+          Err(fail(InvalidSyntax, line, column + parsed.next, "unexpected text after quoted mapping key"))
+        }
+      }
+      _ -> match unsupported_plain(key_source) {
+        Some(feature) -> Err(fail(UnsupportedFeature(feature), line, column, "YAML #{feature} are not supported by kai-yaml 0.1"))
+        None -> Ok(key_source)
+      }
+    }
+  }
+}
+
+fn flow_mapping(source: String, index: Int, line: Int, acc: [Pair[String, node.YamlValue]]) : Result[InlineValue, yaml_errors.ParseError] {
+  let start = skip_inline_space(source, index)
+  match char_at(source, start) {
+    Some('}') -> Ok(InlineValue { value: YMapping(list.reverse(acc)), next: start + 1 })
+    _ -> match flow_key_end(source, start, 0) {
+      None -> Err(fail(InvalidSyntax, line, start + 1, "expected ':' in flow mapping"))
+      Some(colon) -> {
+        let key = parse_key(string.slice(source, start, colon - start), line, start + 1)!
+        if duplicate(acc, key) {
+          Err(fail(DuplicateKey(key), line, start + 1, "duplicate mapping key '#{key}'"))
+        } else {
+          let item = inline_value(source, colon + 1, line, true)!
+          let after = skip_inline_space(source, item.next)
+          let pair = Pair { fst: key, snd: item.value }
+          match char_at(source, after) {
+            Some(',') -> flow_mapping(source, after + 1, line, [pair, ...acc])
+            Some('}') -> Ok(InlineValue { value: YMapping(list.reverse([pair, ...acc])), next: after + 1 })
+            _ -> Err(fail(InvalidSyntax, line, after + 1, "expected ',' or '}' in flow mapping"))
+          }
+        }
+      }
+    }
+  }
+}
+
+fn parse_inline(source: String, line: Int, column: Int) : Result[node.YamlValue, yaml_errors.ParseError] {
+  let parsed = inline_value(source, 0, line, false)!
+  let finish = skip_inline_space(source, parsed.next)
+  if finish == string.length(source) {
+    Ok(parsed.value)
+  } else {
+    Err(fail(InvalidSyntax, line, column + finish, "unexpected trailing text after YAML value"))
+  }
+}
+
+fn block_header(source: String) : Bool = string.starts_with(source, "|") or string.starts_with(source, ">")
+
+fn header_chomp(source: String, line: Int) : Result[Int, yaml_errors.ParseError] = if (source == "|") or (source == ">") {
+  Ok(0)
+} else if (source == "|-") or (source == ">-") {
+  Ok(-1)
+} else if (source == "|+") or (source == ">+") {
+  Ok(1)
+} else {
+  Err(fail(InvalidSyntax, line, 1, "unsupported block scalar header; use |, |-, |+, >, >- or >+"))
+}
+
+fn first_block_indent(lines: [Line], parent_indent: Int) : Option[Int] = match lines {
+  [] -> None
+  [line, ...rest] -> if string.is_empty(line.text) {
+    first_block_indent(rest, parent_indent)
+  } else if line.indent > parent_indent {
+    Some(line.indent)
+  } else {
+    None
+  }
+}
+
+fn collect_block(lines: [Line], parent_indent: Int, content_indent: Int, acc: [String]) : Result[BlockCollected, yaml_errors.ParseError] = match lines {
+  [] -> Ok(BlockCollected { parts: list.reverse(acc), rest: [] })
+  [line, ...rest] -> if string.is_empty(line.text) {
+    collect_block(rest, parent_indent, content_indent, ["", ...acc])
+  } else if line.indent <= parent_indent {
+    Ok(BlockCollected { parts: list.reverse(acc), rest: lines })
+  } else if line.indent < content_indent {
+    Err(fail(InvalidIndentation, line.number, line.indent + 1, "block scalar line is less indented than its content"))
+  } else {
+    let prefix = string.repeat(" ", line.indent - content_indent)
+    collect_block(rest, parent_indent, content_indent, ["#{prefix}#{line.text}", ...acc])
+  }
+}
+
+fn literal(parts: [String]) : String = if list.is_empty(parts) {
+  ""
+} else {
+  "#{string.join(parts, "\n")}\n"
+}
+
+fn folded_parts(parts: [String]) : String = match parts {
+  [] -> ""
+  [only] -> "#{only}\n"
+  [first, second, ...rest] -> {
+    let separator = if string.is_empty(first) or string.is_empty(second) {
+      "\n"
+    } else {
+      " "
+    }
+    "#{first}#{separator}#{folded_parts([second, ...rest])}"
+  }
+}
+
+fn strip_trailing_newlines(source: String) : String = if string.ends_with(source, "\n") {
+  match string.drop_suffix(source, "\n") {
+    Some(rest) -> strip_trailing_newlines(rest)
+    None -> source
+  }
+} else {
+  source
+}
+
+fn apply_chomp(source: String, chomp: Int) : String = if chomp < 0 {
+  strip_trailing_newlines(source)
+} else if chomp > 0 {
+  source
+} else {
+  let stripped = strip_trailing_newlines(source)
+  if string.is_empty(source) {
+    ""
+  } else {
+    "#{stripped}\n"
+  }
+}
+
+fn parse_block_scalar(header: String, lines: [Line], parent_indent: Int, line: Int) : Result[PairValue, yaml_errors.ParseError] {
+  let chomp = header_chomp(header, line)!
+  match first_block_indent(lines, parent_indent) {
+    None -> Ok(PairValue { value: YString(""), rest: lines })
+    Some(content_indent) -> {
+      let collected = collect_block(lines, parent_indent, content_indent, [])!
+      let rendered = if string.starts_with(header, "|") {
+        literal(collected.parts)
+      } else {
+        folded_parts(collected.parts)
+      }
+      Ok(PairValue { value: YString(apply_chomp(rendered, chomp)), rest: collected.rest })
+    }
+  }
+}
+
+fn nested_or_null(lines: [Line], parent_indent: Int) : Result[PairValue, yaml_errors.ParseError] {
+  let ready = skip_trivia(lines)
+  match ready {
+    [] -> Ok(PairValue { value: YNull, rest: [] })
+    [line, ..._] -> if (is_document_marker(semantic(line)) or (line.indent < parent_indent)) or ((line.indent == parent_indent) and (not sequence_item(semantic(line)))) {
+      Ok(PairValue { value: YNull, rest: ready })
+    } else {
+      let parsed = parse_block(ready, line.indent)!
+      Ok(PairValue { value: parsed.value, rest: parsed.rest })
+    }
+  }
+}
+
+fn parse_pair_value(raw: String, lines: [Line], parent_indent: Int, line: Int, column: Int) : Result[PairValue, yaml_errors.ParseError] = if string.is_empty(raw) {
+  nested_or_null(lines, parent_indent)
+} else if block_header(raw) {
+  parse_block_scalar(raw, lines, parent_indent, line)
+} else {
+  let parsed = parse_inline(raw, line, column)!
+  Ok(PairValue { value: parsed, rest: lines })
+}
+
+fn mapping_loop(lines: [Line], indent: Int, acc: [Pair[String, node.YamlValue]]) : Result[Parsed, yaml_errors.ParseError] {
+  let ready = skip_trivia(lines)
+  match ready {
+    [] -> Ok(Parsed { value: YMapping(list.reverse(acc)), rest: [] })
+    [line, ...rest] -> {
+      let text = semantic(line)
+      if (is_document_marker(text) or (line.indent < indent)) or ((line.indent == indent) and sequence_item(text)) {
+        Ok(Parsed { value: YMapping(list.reverse(acc)), rest: ready })
+      } else if line.indent > indent {
+        Err(fail(InvalidIndentation, line.number, line.indent + 1, "unexpected indentation inside mapping"))
+      } else {
+        match split_pair(text) {
+          None -> Err(fail(InvalidSyntax, line.number, indent + 1, "expected a key/value pair"))
+          Some(parts) -> {
+            let key = parse_key(parts.key, line.number, indent + 1)!
+            if duplicate(acc, key) {
+              Err(fail(DuplicateKey(key), line.number, indent + 1, "duplicate mapping key '#{key}'"))
+            } else {
+              let item = parse_pair_value(parts.raw_value, rest, indent, line.number, (indent + string.length(parts.key)) + 2)!
+              mapping_loop(item.rest, indent, [Pair { fst: key, snd: item.value }, ...acc])
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn compact_mapping(parts: PairParts, lines: [Line], sequence_indent: Int, line: Int) : Result[PairValue, yaml_errors.ParseError] {
+  let mapping_indent = sequence_indent + 2
+  let key = parse_key(parts.key, line, mapping_indent + 1)!
+  let first = parse_pair_value(parts.raw_value, lines, mapping_indent, line, (mapping_indent + string.length(parts.key)) + 2)!
+  let parsed = mapping_loop(first.rest, mapping_indent, [Pair { fst: key, snd: first.value }])!
+  Ok(PairValue { value: parsed.value, rest: parsed.rest })
+}
+
+fn sequence_loop(lines: [Line], indent: Int, acc: [node.YamlValue]) : Result[Parsed, yaml_errors.ParseError] {
+  let ready = skip_trivia(lines)
+  match ready {
+    [] -> Ok(Parsed { value: YSequence(list.reverse(acc)), rest: [] })
+    [line, ...rest] -> {
+      let text = semantic(line)
+      if (is_document_marker(text) or (line.indent < indent)) or ((line.indent == indent) and (not sequence_item(text))) {
+        Ok(Parsed { value: YSequence(list.reverse(acc)), rest: ready })
+      } else if line.indent > indent {
+        Err(fail(InvalidIndentation, line.number, line.indent + 1, "unexpected indentation inside sequence"))
+      } else {
+        let raw = after_sequence_marker(text)
+        let item = if string.is_empty(raw) {
+          nested_or_null(rest, indent)!
+        } else if block_header(raw) {
+          parse_block_scalar(raw, rest, indent, line.number)!
+        } else {
+          match split_pair(raw) {
+            Some(parts) -> compact_mapping(parts, rest, indent, line.number)!
+            None -> PairValue { value: parse_inline(raw, line.number, indent + 3)!, rest: rest }
+          }
+        }
+        sequence_loop(item.rest, indent, [item.value, ...acc])
+      }
+    }
+  }
+}
+
+fn parse_block(lines: [Line], indent: Int) : Result[Parsed, yaml_errors.ParseError] {
+  let ready = skip_trivia(lines)
+  match ready {
+    [] -> Ok(Parsed { value: YNull, rest: [] })
+    [line, ...rest] -> {
+      let text = semantic(line)
+      if line.indent != indent {
+        Err(fail(InvalidIndentation, line.number, line.indent + 1, "unexpected YAML indentation"))
+      } else if sequence_item(text) {
+        sequence_loop(ready, indent, [])
+      } else {
+        match split_pair(text) {
+          Some(_) -> mapping_loop(ready, indent, [])
+          None -> {
+            let parsed = parse_inline(text, line.number, indent + 1)!
+            Ok(Parsed { value: parsed, rest: rest })
+          }
+        }
+      }
+    }
+  }
+}
+
+fn trailing_document(lines: [Line]) : Result[Unit, yaml_errors.ParseError] = match skip_trivia(lines) {
+  [] -> Ok(())
+  [line, ...rest] -> {
+    let text = semantic(line)
+    if text == "..." {
+      match skip_trivia(rest) {
+        [] -> Ok(())
+        [next, ..._] -> if semantic(next) == "---" {
+          Err(fail(MultipleDocuments, next.number, next.indent + 1, "parse accepts one YAML document; use a separate parse call for each document"))
+        } else {
+          Err(fail(InvalidSyntax, next.number, next.indent + 1, "unexpected content after document end marker"))
+        }
+      }
+    } else if text == "---" {
+      Err(fail(MultipleDocuments, line.number, line.indent + 1, "parse accepts one YAML document; streams with multiple documents are not supported"))
+    } else {
+      Err(fail(InvalidSyntax, line.number, line.indent + 1, "unexpected trailing YAML content"))
+    }
+  }
+}
+
+#[doc("Parses exactly one safe YAML 1.2 document.")]
+pub fn parse(source: String) : Result[node.YamlValue, yaml_errors.ParseError] {
+  let prepared = prepare(source)!
+  let ready = skip_trivia(prepared)
+  let content = match ready {
+    [line, ...rest] -> if semantic(line) == "---" {
+      skip_trivia(rest)
+    } else {
+      ready
+    }
+    [] -> []
+  }
+  match content {
+    [] -> Ok(YNull)
+    [line, ..._] -> if line.indent != 0 {
+      Err(fail(InvalidIndentation, line.number, line.indent + 1, "the root YAML node must start at column 1"))
+    } else if semantic(line) == "..." {
+      Ok(YNull)
+    } else {
+      let parsed = parse_block(content, 0)!
+      trailing_document(parsed.rest)!
+      Ok(parsed.value)
+    }
+  }
+}

@@ -1,0 +1,27 @@
+#[doc("Structured errors reported while parsing or loading YAML.")]
+
+#[doc("The stable category of a YAML syntax or support error.")]
+pub type ParseErrorKind
+  = InvalidIndentation
+  | InvalidSyntax
+  | InvalidScalar
+  | DuplicateKey(String)
+  | UnsupportedFeature(String)
+  | MultipleDocuments
+
+#[doc("A recoverable YAML parser error with one-based source position.")]
+pub type ParseError = { kind: ParseErrorKind, line: Int, column: Int, message: String }
+
+#[doc("A filesystem or syntax failure produced by `yaml.load`.")]
+pub type LoadError
+  = ReadError(String, String)
+  | ParseFailure(ParseError)
+
+#[doc("Formats a parser error without discarding its source position.")]
+pub fn message(value: ParseError) : String = "#{value.line}:#{value.column}: #{value.message}"
+
+#[doc("Formats a file-loading error for diagnostics.")]
+pub fn load_message(value: LoadError) : String = match value {
+  ReadError(path, detail) -> "could not read #{path}: #{detail}"
+  ParseFailure(found) -> message(found)
+}

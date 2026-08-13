@@ -1,0 +1,29 @@
+#[doc("Safe YAML 1.2 parsing, loading and canonical serialization for Kaikai applications.")]
+
+import yaml.encoder
+
+import yaml.errors as yaml_errors
+
+import yaml.loader
+
+import yaml.parser
+
+import yaml.value
+
+#[doc("The semantic version of the kai-yaml package.")]
+pub const VERSION : String = "0.1.0"
+
+#[doc("Parses one YAML document into the safe `YamlValue` model.")]
+pub fn parse(source: String) : Result[value.YamlValue, yaml_errors.ParseError] = parser.parse(source)
+
+#[doc("Alias for `parse`, useful at serialization boundaries.")]
+pub fn decode(source: String) : Result[value.YamlValue, yaml_errors.ParseError] = parse(source)
+
+#[doc("Serializes a YAML value in a deterministic block style.")]
+pub fn stringify(document: value.YamlValue) : String = encoder.stringify(document)
+
+#[doc("Alias for `stringify`, useful at serialization boundaries.")]
+pub fn encode(document: value.YamlValue) : String = stringify(document)
+
+#[doc("Reads and parses one YAML document through the explicit `File` effect.")]
+pub fn load(path: String) : Result[value.YamlValue, yaml_errors.LoadError] / File = loader.load(path)
