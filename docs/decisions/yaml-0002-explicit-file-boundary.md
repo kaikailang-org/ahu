@@ -1,20 +1,19 @@
-# 0002: Mantener el parser puro y el filesystem explícito
+# 0002: Keep the parser pure and the filesystem explicit
 
-Estado: aceptada.
+Status: accepted.
 
-## Contexto
+## Context
 
-Mezclar parsing y búsqueda de archivos haría que la misma entrada dependiera
-del cwd y dificultaría pruebas deterministas.
+Mixing parsing with file discovery would make the same input depend on the
+current working directory and make deterministic testing harder.
 
-## Decisión
+## Decision
 
-`yaml.parse` recibe `String` y es puro. `yaml.load` declara `File`.
-`yaml.loader.load_with` recibe una función lectora para assets embebidos,
-filesystems virtuales y pruebas.
+`yaml.parse` receives a `String` and is pure. `yaml.load` declares `File`.
+`yaml.loader.load_with` accepts a reader function for embedded assets, virtual
+filesystems, and tests.
 
-## Consecuencias
+## Consequences
 
-Las aplicaciones ven el IO en la fila de efectos. Reo podrá decidir su propia
-política de paths y merge de catálogos sin que `kai-yaml` adopte configuración
-global.
+Applications see I/O in the effect row. Reo can define its own path and catalog
+merge policy without `kai-yaml` adopting global configuration.

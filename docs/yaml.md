@@ -1,48 +1,49 @@
 # kai-yaml
 
-`kai-yaml` es una librería segura de YAML 1.2 para Kaikai. Convierte texto
-humano en un árbol de valores explícito, sin construir objetos arbitrarios ni
-ocultar IO.
+`kai-yaml` is a safe YAML 1.2 library for Kaikai. It converts human-readable
+text into an explicit value tree without constructing arbitrary objects or
+hiding I/O.
 
-La versión 0.1 está pensada para configuración de aplicaciones y catálogos de
-localización como los que consumirá Reo. Incluye:
+Version 0.1 targets application configuration and localization catalogs such
+as those consumed by Reo. It includes:
 
-- mappings y sequences por indentación;
-- mappings y sequences flow (`{...}` y `[...]`);
-- strings plain, single-quoted y double-quoted;
-- escapes YAML en strings double-quoted, incluido Unicode;
-- `null`, booleanos, enteros decimales y reales finitos del core schema YAML 1.2;
-- scalars de bloque literales (`|`) y folded (`>`) con chomping;
-- comentarios fuera de strings;
-- errores recuperables con línea y columna;
-- rechazo de claves duplicadas;
-- carga mediante el efecto `File` o una función lectora inyectada;
-- serialización determinista y helpers de consulta total.
+- indentation-based mappings and sequences;
+- flow mappings and sequences (`{...}` and `[...]`);
+- plain, single-quoted, and double-quoted strings;
+- YAML escapes in double-quoted strings, including Unicode;
+- `null`, booleans, decimal integers, and finite real numbers from the YAML 1.2
+  core schema;
+- literal (`|`) and folded (`>`) block scalars with chomping;
+- comments outside strings;
+- recoverable errors with line and column positions;
+- duplicate-key rejection;
+- loading through the `File` effect or an injected reader function;
+- deterministic serialization and total query helpers.
 
-## Dependencia
+## Dependency
 
-Durante el desarrollo local:
+During local development:
 
 ```toml
 [dependencies]
 yaml = { path = "../kai-yaml" }
 ```
 
-El paquete se llama `kai-yaml`; la dependencia usa `yaml` como alias de módulo
-idiomático:
+The package is named `kai-yaml`; the dependency uses `yaml` as its idiomatic
+module alias:
 
 ```kai
 import yaml
 import yaml.value
 ```
 
-## Parsear
+## Parsing
 
 ```kai
 let source = "es:\n  greeting: Hola\n  enabled: true\n"
 
 match yaml.parse(source) {
-  Err(problem) -> panic("YAML inválido: #{problem.line}:#{problem.column}")
+  Err(problem) -> panic("invalid YAML: #{problem.line}:#{problem.column}")
   Ok(document) -> {
     let greeting = value.get_path(document, ["es", "greeting"])
     assert greeting == Some(YString("Hola"))
@@ -50,8 +51,8 @@ match yaml.parse(source) {
 }
 ```
 
-El modelo no usa `JsonValue` porque YAML distingue una frontera propia y puede
-evolucionar sin deformar JSON:
+The model does not use `JsonValue` because YAML defines its own boundary and
+must be free to evolve without distorting JSON:
 
 ```kai
 type YamlValue
@@ -64,20 +65,20 @@ type YamlValue
   | YMapping([Pair[String, YamlValue]])
 ```
 
-Los mappings conservan el orden del documento. Las claves son strings: las
-claves complejas de YAML no forman parte del contrato seguro de 0.1.
+Mappings preserve document order. Keys are strings; complex YAML keys are not
+part of the safe 0.1 contract.
 
-## Cargar archivos
+## Loading files
 
-La operación normal declara IO en la firma:
+The normal operation declares I/O in its signature:
 
 ```kai
 let catalog = yaml.load("config/locales/es.yml")
 # Result[YamlValue, LoadError] / File
 ```
 
-Para pruebas, assets embebidos o un filesystem virtual puede inyectarse la
-lectura sin simular estado global:
+Tests, embedded assets, or virtual filesystems can inject the reader without
+simulating global state:
 
 ```kai
 import yaml.loader
@@ -90,7 +91,7 @@ let catalog = loader.load_with("es.yml", path =>
   })
 ```
 
-## Un catálogo para Reo
+## A catalog for Reo
 
 ```yaml
 es:
@@ -101,29 +102,29 @@ es:
       other: "Tienes %{count} mensajes"
 ```
 
-`kai-yaml` solamente interpreta YAML. Será responsabilidad de Reo validar que
-la raíz contiene locales, que una hoja es una traducción y que `one`/`other`
-forman un plural válido. Esta frontera mantiene al parser general y a Reo
-dueño de su dominio.
+`kai-yaml` only interprets YAML. Reo is responsible for validating that the
+root contains locales, that a leaf is a translation, and that `one`/`other`
+form a valid plural. This boundary keeps the parser general and leaves Reo in
+control of its domain.
 
-## Serializar
+## Serialization
 
-`yaml.stringify` produce block YAML determinista, siempre entrecomilla strings
-y claves, preserva el orden del mapping y termina con newline. El objetivo es
-una representación estable para snapshots y herramientas; no conserva
-comentarios ni el estilo original.
+`yaml.stringify` produces deterministic block YAML, always quotes strings and
+keys, preserves mapping order, and ends with a newline. Its goal is a stable
+representation for snapshots and tools; it does not preserve comments or the
+original style.
 
-## Límites deliberados de 0.1
+## Deliberate 0.1 limitations
 
-Anchors, aliases, merge keys, tags, claves complejas, múltiples documentos y
-scalars flow multilínea se rechazan con un `ParseError`. No se ignoran ni se
-interpretan parcialmente. Tampoco se preservan comentarios, whitespace o
-estilo para edición round-trip.
+Anchors, aliases, merge keys, tags, complex keys, multiple documents, and
+multiline flow scalars are rejected with a `ParseError`. They are never ignored
+or interpreted partially. Comments, whitespace, and style are not preserved
+for round-trip editing.
 
-La arquitectura y las razones de este alcance están en
+The architecture and rationale for this scope are documented in
 [`docs/design.md`](docs/design.md).
 
-## Desarrollo
+## Development
 
 ```sh
 ./scripts/check.sh

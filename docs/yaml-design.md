@@ -1,92 +1,91 @@
-# Diseño de kai-yaml 0.1
+# kai-yaml 0.1 design
 
-`kai-yaml` es la frontera de serialización YAML para el ecosistema Kaikai. Su
-primer consumidor será Reo, pero el paquete no contiene conceptos de idiomas,
-traducciones o pluralización.
+`kai-yaml` is the YAML serialization boundary for the Kaikai ecosystem. Reo is
+its first consumer, but the package contains no language, translation, or
+pluralization concepts.
 
-## Objetivos
+## Goals
 
-- Interpretar el YAML cotidiano de archivos de configuración.
-- Usar un modelo de valores pequeño, inmutable y explícito.
-- Entregar errores recuperables con posición de origen.
-- No ejecutar constructores, tags ni referencias definidos por el documento.
-- Mantener el parser puro y hacer visible el IO al cargar archivos.
-- Producir una serialización canónica útil para snapshots y herramientas.
+- Interpret the everyday YAML found in configuration files.
+- Use a small, immutable, explicit value model.
+- Return recoverable errors with source positions.
+- Never execute constructors, tags, or references defined by a document.
+- Keep the parser pure and make file-loading I/O visible.
+- Produce canonical serialization suitable for snapshots and tools.
 
-No son objetivos de 0.1 editar documentos conservando comentarios, aceptar
-streams multidocumento, implementar el grafo de anchors/aliases ni cubrir cada
-producción de la especificación YAML.
+Preserving comments while editing, accepting multi-document streams,
+implementing the anchor/alias graph, and covering every YAML grammar production
+are not goals for 0.1.
 
-## Capas
+## Layers
 
 ```text
 String ── yaml.parser ──> Result[YamlValue, ParseError]
    ▲                              │
-   │                              ├── yaml.value: consultas totales
-File / lector inyectado           └── yaml.encoder: salida canónica
+   │                              ├── yaml.value: total queries
+File / injected reader            └── yaml.encoder: canonical output
    │
 yaml.loader
 ```
 
-`yaml.parser` no declara efectos. `yaml.loader` es la única capa que conoce la
-lectura externa y ofrece dos entradas:
+`yaml.parser` declares no effects. `yaml.loader` is the only layer that knows
+about external reads and provides two entry points:
 
-- `load(path) / File` para aplicaciones;
-- `load_with(path, read) / e` para filesystems alternativos y pruebas.
+- `load(path) / File` for applications;
+- `load_with(path, read) / e` for alternate filesystems and tests.
 
-## Modelo de representación
+## Representation model
 
-El modelo refleja las tres primitivas de YAML —scalar, sequence y mapping— y
-resuelve el subconjunto cotidiano del core schema de YAML 1.2: null,
-booleanos, enteros decimales y reales finitos. `yes`, `no`, `on` y `off`
-siguen siendo strings; esto evita la coerción sorprendente heredada de YAML
-1.1. Las formas octales, hexadecimales, infinitos y NaN quedan como strings en
-0.1.
+The model reflects YAML's three primitives—scalar, sequence, and mapping—and
+resolves the everyday subset of the YAML 1.2 core schema: null, booleans,
+decimal integers, and finite real numbers. `yes`, `no`, `on`, and `off` remain
+strings, preventing the surprising coercion inherited from YAML 1.1. Octal and
+hexadecimal forms, infinities, and NaN remain strings in 0.1.
 
-Los mappings usan `[Pair[String, YamlValue]]` en vez de `Map`. Así preservan el
-orden fuente y pueden detectar claves duplicadas antes de perder información.
-Solo se aceptan claves string porque es la forma interoperable requerida por
-configuración, manifests y catálogos de traducción.
+Mappings use `[Pair[String, YamlValue]]` rather than `Map`. This preserves
+source order and allows duplicate keys to be detected before information is
+lost. Only string keys are accepted because that is the interoperable form
+required by configuration, manifests, and translation catalogs.
 
 ## Parser
 
-El parser trabaja en dos niveles:
+The parser operates at two levels:
 
-1. normaliza saltos de línea y convierte cada línea en `(número, indentación,
-   texto)`;
-2. un descenso recursivo interpreta collections block, y un cursor separado
-   interpreta valores flow y strings quoted.
+1. it normalizes line endings and converts each line to `(number, indentation,
+   text)`;
+2. recursive descent interprets block collections, while a separate cursor
+   interprets flow values and quoted strings.
 
-Los comentarios se eliminan únicamente fuera de strings. La búsqueda de `:`
-para mappings también respeta comillas y profundidad flow, por lo que valores
-como URLs no se confunden con pares.
+Comments are removed only outside strings. Searching for `:` in mappings also
+respects quotes and flow depth, so values such as URLs are not mistaken for
+pairs.
 
-Se soportan scalars literales y folded con `-`, clip por defecto y `+`. La
-salida folded implementa el caso de configuración habitual; los scalars flow
-multilínea y los indicadores explícitos de indentación se rechazan.
+Literal and folded scalars support `-`, default clipping, and `+`. Folded output
+implements the common configuration case; multiline flow scalars and explicit
+indentation indicators are rejected.
 
-## Seguridad
+## Security
 
-Tags, anchors, aliases y merge keys cambian el modelo desde un árbol hacia un
-grafo y pueden activar construcción específica de la aplicación en otros
-ecosistemas. 0.1 los reconoce en sus posiciones de inicio y retorna
-`UnsupportedFeature`; nunca los trata silenciosamente como texto.
+Tags, anchors, aliases, and merge keys change the model from a tree to a graph
+and can trigger application-specific construction in other ecosystems. Version
+0.1 recognizes them at their starting positions and returns
+`UnsupportedFeature`; it never silently treats them as text.
 
-Las claves duplicadas retornan `DuplicateKey`. Adoptar "first wins" o "last
-wins" haría que una traducción o configuración efectiva dependiera de una
-convención invisible y distinta entre parsers.
+Duplicate keys return `DuplicateKey`. Adopting “first wins” or “last wins”
+would make the effective translation or configuration depend on an invisible
+convention that differs among parsers.
 
 ## Encoder
 
-El encoder siempre usa block collections y double quotes para strings y
-claves. Eso sacrifica estilo, pero garantiza que un valor como `true`, `null`
-o `0123` no cambie de tipo al volver a parsearse. El orden de entrada se
-mantiene y la salida siempre termina con newline.
+The encoder always uses block collections and double quotes for strings and
+keys. This sacrifices style, but guarantees that values such as `true`, `null`,
+or `0123` do not change type when parsed again. Input order is preserved, and
+output always ends with a newline.
 
-## Integración con Reo
+## Reo integration
 
-Reo dependerá de `kai-yaml` y transformará `YamlValue` en su propio catálogo.
-La validación específica queda aguas arriba:
+Reo depends on `kai-yaml` and transforms `YamlValue` into its own catalog.
+Domain-specific validation remains upstream:
 
 ```text
 config/locales/es.yml
@@ -96,18 +95,18 @@ config/locales/es.yml
         │ YamlValue
         ▼
    reo.catalog.from_yaml
-        │ CatalogError con path semántico
+        │ CatalogError with semantic path
         ▼
       Voice
 ```
 
-Así, un YAML sintácticamente válido puede fallar como catálogo con un error de
-Reo preciso —por ejemplo, una traducción que sea una lista— sin convertir esa
-restricción del dominio en una regla global del parser.
+This allows syntactically valid YAML to fail as a catalog with a precise Reo
+error—for example, when a translation is a list—without turning that domain
+restriction into a global parser rule.
 
-## Evolución
+## Evolution
 
-1. 0.1: subset seguro para configuración, loader y encoder canónico.
-2. 0.2: streams mediante una API separada y scalars multilínea completos.
-3. Futuro: anchors/aliases como grafo explícito, solo si existe un caso de uso
-   que justifique límites de expansión, detección de ciclos y una API segura.
+1. 0.1: safe configuration subset, loader, and canonical encoder.
+2. 0.2: streams through a separate API and complete multiline scalars.
+3. Future: anchors and aliases as an explicit graph, only when a use case
+   justifies expansion limits, cycle detection, and a safe API.

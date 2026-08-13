@@ -1,20 +1,20 @@
-# 0001: Usar un árbol seguro con claves string
+# 0001: Use a safe tree with string keys
 
-Estado: aceptada.
+Status: accepted.
 
-## Contexto
+## Context
 
-YAML puede representar mappings con claves arbitrarias, tags de aplicación y
-grafos mediante anchors y aliases. Reo necesita documentos humanos simples y
-predecibles, no construcción dinámica de objetos.
+YAML can represent mappings with arbitrary keys, application tags, and graphs
+through anchors and aliases. Reo needs simple, predictable documents for
+humans, not dynamic object construction.
 
-## Decisión
+## Decision
 
-`YamlValue` será un árbol algebraico y los mappings tendrán claves `String`.
-0.1 rechazará tags, anchors, aliases, merge keys y claves complejas.
+`YamlValue` will be an algebraic tree, and mappings will have `String` keys.
+Version 0.1 will reject tags, anchors, aliases, merge keys, and complex keys.
 
-## Consecuencias
+## Consequences
 
-El resultado es portable, comparable y seguro por defecto. Algunos documentos
-YAML válidos no serán aceptados hasta que exista una representación explícita
-y acotada para esas capacidades.
+The result is portable, comparable, and safe by default. Some valid YAML
+documents will not be accepted until there is an explicit, bounded
+representation for those capabilities.
