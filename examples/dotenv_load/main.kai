@@ -1,0 +1,18 @@
+import dotenv
+
+import os.env
+
+fn main() : Int / File + Env + Stdout + Stderr = match dotenv.load() {
+  Err(error) -> {
+    Stderr.eprint("#{dotenv.error_message(error)}\n")
+    1
+  }
+  Ok(report) -> {
+    Stdout.print("Loaded #{list.length(report.loaded)} variables from #{list.length(report.files)} dotenv files.\n")
+    match env.get("APP_NAME") {
+      None -> Stdout.print("APP_NAME is not configured.\n")
+      Some(name) -> Stdout.print("APP_NAME=#{name}\n")
+    }
+    0
+  }
+}
