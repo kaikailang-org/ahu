@@ -1,29 +1,30 @@
-# ADR 0003: memoria es una máquina de estados efímera
+# ADR 0003: Memory is an ephemeral state machine
 
-Estado: aceptada — 2026-08-12.
+Status: accepted — 2026-08-12.
 
-## Contexto
+## Context
 
-El primer adaptador necesita ser simple, reproducible y útil en pruebas. Crear
-desde el inicio un scheduler concurrente mezclaría el contrato con decisiones
-de supervisión, shutdown, locking y persistencia.
+The first adapter must be simple, reproducible, and useful in tests. Starting
+with a concurrent scheduler would mix the contract with supervision, shutdown,
+locking, and persistence decisions.
 
-## Decisión
+## Decision
 
-El adaptador en memoria usa un `State` inmutable y un handler stateful lexical.
-La aplicación o el test decide cuándo llamar `pop_ready`, `perform_next` o
+The in-memory adapter uses an immutable `State` and a lexical stateful handler.
+The application or test decides when to call `pop_ready`, `perform_next`, or
 `drain_ready`.
 
-## Alternativas
+## Alternatives
 
-- `Ref[State]`: permite identidad compartida, pero introduce `Mutable` y races
-  si se comparte entre fibers.
-- Actor interno: adecuado para un adapter async posterior, pero agrega ciclo de
-  vida y coordinación antes de estabilizar el contrato.
-- Ejecutar inline al encolar: no prueba scheduling ni representa una cola.
+- `Ref[State]`: supports shared identity, but introduces `Mutable` and races
+  when shared across fibers.
+- Internal actor: suitable for a later asynchronous adapter, but adds lifecycle
+  and coordination before the contract is stable.
+- Execute inline while enqueueing: does not test scheduling or represent a
+  queue.
 
-## Consecuencias
+## Consequences
 
-La implementación es determinista y fácil de testear. No sobrevive reinicios,
-no ejecuta sola y no ofrece garantías de concurrencia; esos límites forman
-parte explícita de su API y documentación.
+The implementation is deterministic and easy to test. It does not survive
+restarts, run by itself, or provide concurrency guarantees; these limitations
+are an explicit part of its API and documentation.

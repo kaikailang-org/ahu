@@ -1,30 +1,30 @@
-# ADR 0001: QueueAdapter es un efecto
+# ADR 0001: QueueAdapter is an effect
 
-Estado: aceptada — 2026-08-12.
+Status: accepted — 2026-08-12.
 
-## Contexto
+## Context
 
-Anga debe permitir cambiar de backend sin que controllers, mailers o dominio
-importen implementaciones concretas. Kaikai hace visibles los efectos en la
-firma de cada función.
+Anga must support changing backends without requiring controllers, mailers, or
+domain code to import concrete implementations. Kaikai makes effects visible
+in every function signature.
 
-## Decisión
+## Decision
 
-El contrato público será el efecto `QueueAdapter` con las operaciones mínimas
-`enqueue` y `enqueue_at`. El backend se instala léxicamente en el composition
-root; no habrá registro global de adaptadores.
+The public contract will be the `QueueAdapter` effect with the minimum
+`enqueue` and `enqueue_at` operations. The backend is installed lexically at
+the composition root; there will be no global adapter registry.
 
-## Alternativas
+## Alternatives
 
-- Pasar un record de funciones: explícito, pero repite plumbing y las closures
-  no son serializables.
-- Configuración global por nombre: familiar en Rails, pero oculta el efecto,
-  dificulta tests paralelos y no es idiomática en Kaikai.
-- Protocolos: los protocolos actuales son puros y no admiten una fila de
-  efectos dependiente de la implementación.
+- Pass a record of functions: explicit, but duplicates plumbing and closures
+  are not serializable.
+- Global configuration by name: familiar in Rails, but hides the effect, makes
+  parallel tests harder, and is not idiomatic Kaikai.
+- Protocols: current protocols are pure and cannot express an effect row that
+  depends on the implementation.
 
-## Consecuencias
+## Consequences
 
-Las firmas muestran cuándo una operación encola trabajo y los tests pueden
-instalar handlers deterministas. Los adaptadores con IO exponen sus propios
-efectos al instalar el handler.
+Signatures show when an operation enqueues work, and tests can install
+deterministic handlers. I/O adapters expose their own effects when installing
+the handler.

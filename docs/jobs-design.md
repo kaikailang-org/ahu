@@ -1,27 +1,28 @@
-# Diseño de Anga 0.1
+# Anga 0.1 design
 
-Anga es el contrato de trabajos en segundo plano para aplicaciones Kaikai y
-Manutara. Toma de Active Job la separación entre la definición del trabajo y
-el backend operacional, pero expresa esa separación con datos inmutables,
-`Result`, funciones y efectos explícitos.
+Anga is the background-job contract for Kaikai and Manutara applications. It
+takes Active Job's separation between job definition and operational backend,
+but expresses that separation with immutable data, `Result`, functions, and
+explicit effects.
 
-## Objetivos
+## Goals
 
-- Un trabajo tiene identidad, nombre de worker, argumentos serializables,
-  cola, prioridad y tiempo opcional de ejecución.
-- La aplicación puede encolar ahora, encolar para una fecha o encolar un lote
-  sin conocer el backend.
-- Un adaptador implementa solamente el contrato estable de Anga.
-- El primer adaptador conserva trabajos en memoria para desarrollo y pruebas.
-- La ejecución no usa reflexión: la aplicación entrega un dispatcher explícito.
+- A job has an identity, worker name, serializable arguments, queue, priority,
+  and optional execution time.
+- The application can enqueue immediately, enqueue for a date, or enqueue a
+  batch without knowing the backend.
+- An adapter implements only Anga's stable contract.
+- The first adapter keeps jobs in memory for development and testing.
+- Execution does not use reflection: the application supplies an explicit
+  dispatcher.
 
-No son objetivos de 0.1 la persistencia, cron, retries automáticos,
-continuations, procesos worker concurrentes ni garantías distribuidas.
+Persistence, cron, automatic retries, continuations, concurrent worker
+processes, and distributed guarantees are not goals for 0.1.
 
-## Arquitectura
+## Architecture
 
 ```text
-Manutara controller / dominio / Tuku
+Manutara controller / domain / Tuku
                 │
                 ▼
           anga.perform_later
@@ -42,15 +43,15 @@ Manutara controller / dominio / Tuku
        anga.execution.perform(job, dispatch)
 ```
 
-La dirección de dependencias apunta hacia valores puros. El núcleo no importa
-Manutara y Manutara no necesita conocer un adaptador concreto. Una action puede
-declarar `QueueAdapter` en su fila de efectos exactamente igual que declara
-`File`, `Clock` o una capacidad de dominio.
+Dependencies point toward pure values. The core does not import Manutara, and
+Manutara does not need to know a concrete adapter. An action can declare
+`QueueAdapter` in its effect row just as it declares `File`, `Clock`, or a
+domain capability.
 
-## Modelo de dominio
+## Domain model
 
-`Spec` es una descripción validada todavía sin identidad ni hora de encolado.
-`Job` es el documento materializado que cruza el contrato del adaptador.
+`Spec` is a validated description that does not yet have an identity or enqueue
+time. `Job` is the materialized document that crosses the adapter contract.
 
 ```kai
 type Schedule = Immediate | At(time.WallTime)
@@ -69,16 +70,15 @@ type Job = {
 }
 ```
 
-Los constructores validan nombres, colas y prioridad. `materialize` genera un
-ID con `SecureRandom` y captura la hora con `Clock`. Para pruebas y restauración
-desde un backend existe un constructor determinista que exige los mismos
-invariantes.
+Constructors validate names, queues, and priority. `materialize` generates an
+ID with `SecureRandom` and captures the time with `Clock`. Testing and backend
+restoration use a deterministic constructor that enforces the same invariants.
 
-Los argumentos son `[JsonValue]`. Una closure o un objeto vivo no puede
-serializarse de manera portable; el worker se identifica por nombre y un
-dispatcher de aplicación decide qué función ejecutar.
+Arguments are `[JsonValue]`. A closure or live object cannot be serialized
+portably; the worker is identified by name, and an application dispatcher
+decides which function to execute.
 
-## Contrato del adaptador
+## Adapter contract
 
 ```kai
 pub effect QueueAdapter {
@@ -87,58 +87,60 @@ pub effect QueueAdapter {
 }
 ```
 
-Este es el mismo mínimo conceptual del `AbstractAdapter` de Active Job. Las
-capacidades adicionales pertenecen al adaptador. `submit_all` es un helper de
-Anga y degrada correctamente a llamadas individuales, por lo que no obliga a
-todos los backends a implementar una operación bulk.
+This is the same conceptual minimum as Active Job's `AbstractAdapter`.
+Additional capabilities belong to the adapter. `submit_all` is an Anga helper
+that degrades correctly to individual calls, so it does not require every
+backend to implement a bulk operation.
 
-`perform_later` materializa el `Spec` y selecciona `enqueue` o `enqueue_at`.
-Devuelve el `Job` y el receipt aceptado por el adaptador dentro de `Result`.
+`perform_later` materializes the `Spec` and selects `enqueue` or `enqueue_at`.
+It returns the `Job` and the adapter's accepted receipt inside `Result`.
 
-## Semántica del adaptador en memoria
+## In-memory adapter semantics
 
-El estado es un valor inmutable:
+State is an immutable value:
 
 ```kai
 type State
 type Run[T] = { value: T, state: State }
 ```
 
-`with_adapter(initial, body)` instala `QueueAdapter`, ejecuta `body` y devuelve
-su resultado junto con el nuevo estado. Esto evita configuración global y
-permite inspeccionar exactamente lo que ocurrió.
+`with_adapter(initial, body)` installs `QueueAdapter`, runs `body`, and returns
+its result together with the new state. This avoids global configuration and
+makes exactly what happened observable.
 
-El backend mantiene un número de secuencia monotónico. Al tomar un trabajo:
+The backend maintains a monotonically increasing sequence number. When taking
+a job, it:
 
-1. solo considera trabajos cuyo `scheduled_at <= now`;
-2. limita por las colas solicitadas, o acepta todas si la lista está vacía;
-3. ordena por prioridad ascendente: un entero menor es más importante;
-4. desempata por secuencia FIFO.
+1. considers only jobs whose `scheduled_at <= now`;
+2. limits the selection to the requested queues, or accepts all queues when the
+   list is empty;
+3. sorts by ascending priority, where a lower integer is more important;
+4. breaks ties using FIFO sequence order.
 
-`perform_next` retira un trabajo listo, llama al dispatcher y conserva un
-registro `Succeeded` o `Failed(message)`. 0.1 no reintenta automáticamente.
+`perform_next` removes a ready job, calls the dispatcher, and records
+`Succeeded` or `Failed(message)`. Version 0.1 does not retry automatically.
 
-El estado vive únicamente en el proceso y se pierde al reiniciar. Tampoco es
-un almacén compartido concurrente. Es apropiado para tests, desarrollo y
-ejecución manual, no para producción.
+State lives only in the process and is lost on restart. It is not a concurrent
+shared store. It is suitable for tests, development, and manual execution, not
+for production.
 
 ## Codec
 
-`anga.codec` traduce `Job` a un `JsonValue` canónico y lo restaura validando el
-documento completo. Un futuro adaptador persistente reutilizará este formato en
-lugar de inventar una representación incompatible.
+`anga.codec` converts a `Job` to canonical `JsonValue` and restores it while
+validating the complete document. A future persistent adapter will reuse this
+format instead of inventing an incompatible representation.
 
-## Estrategia de errores
+## Error strategy
 
-- `JobError`: especificación o documento inválido.
-- `AdapterError`: backend no disponible, rechazo o capacidad no soportada.
-- `CodecError`: JSON mal formado o job inválido al restaurar.
-- `Outcome.Failed`: el dispatcher ejecutó el job y devolvió un error.
+- `JobError`: invalid specification or document.
+- `AdapterError`: unavailable backend, rejection, or unsupported capability.
+- `CodecError`: malformed JSON or an invalid restored job.
+- `Outcome.Failed`: the dispatcher ran the job and returned an error.
 
-Ningún error recuperable usa excepciones ni strings desnudos como valor de
-retorno principal.
+No recoverable error uses exceptions or bare strings as its primary return
+value.
 
-## Integración con Manutara
+## Manutara integration
 
 ```kai
 fn create_report(ctx: context.Context) : Response / Clock + SecureRandom + QueueAdapter =
@@ -151,21 +153,21 @@ fn create_report(ctx: context.Context) : Response / Clock + SecureRandom + Queue
   }
 ```
 
-El composition root instala el adaptador. La action solo conoce el efecto, por
-lo que migrar desde memoria a un backend durable no cambia el controller.
+The composition root installs the adapter. The action knows only the effect,
+so moving from memory to a durable backend does not change the controller.
 
 ## Gates
 
-- pruebas de invariantes y scheduling;
-- pruebas de contrato con handlers deterministas;
-- pruebas de prioridad, FIFO, selección de colas y ejecución;
-- round-trip y rechazo del codec;
-- formato canónico, typecheck, lint y documentación pública.
+- invariant and scheduling tests;
+- contract tests with deterministic handlers;
+- priority, FIFO, queue-selection, and execution tests;
+- codec round-trip and rejection tests;
+- canonical formatting, typechecking, linting, and public documentation.
 
-## Evolución
+## Evolution
 
-1. 0.1: contrato, codec y adaptador en memoria determinista.
-2. 0.2: políticas de retry/backoff y hooks observables como efectos.
-3. 0.3: workers supervisados y adapter durable.
-4. Futuro: bulk nativo, cron, unicidad, locks y continuations como capacidades
-   opcionales, no como supuestos del contrato mínimo.
+1. 0.1: contract, codec, and deterministic in-memory adapter.
+2. 0.2: retry/backoff policies and observable hooks represented as effects.
+3. 0.3: supervised workers and a durable adapter.
+4. Future: native bulk operations, cron, uniqueness, locks, and continuations
+   as optional capabilities rather than assumptions in the minimum contract.

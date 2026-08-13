@@ -1,36 +1,36 @@
 # Anga
 
-Anga es la librería de background jobs para Kaikai y Manutara. Está inspirada
-en [Active Job](https://api.rubyonrails.org/classes/ActiveJob.html): define un
-contrato estable entre jobs y backends de colas, pero lo expresa mediante datos
-inmutables, `Result`, dispatch explícito y efectos Kaikai.
+Anga is the background-job library for Kaikai and Manutara. It is inspired by
+[Active Job](https://api.rubyonrails.org/classes/ActiveJob.html): it defines a
+stable contract between jobs and queue backends, expressed through immutable
+data, `Result`, explicit dispatch, and Kaikai effects.
 
-Anga 0.1 incluye:
+Anga 0.1 includes:
 
-- `Spec` y `Job` validados;
-- argumentos portables como `[JsonValue]`;
-- colas, prioridades y scheduling absoluto o relativo;
-- `perform_now`, `perform_later`, `perform_at` y `perform_in`;
-- efecto intercambiable `QueueAdapter`;
-- `enqueue` y `enqueue_at`, más bulk degradable con `submit_all`;
-- codec JSON canónico para adapters futuros;
-- adapter en memoria con prioridad, FIFO, filtros de cola e historial;
-- dispatcher explícito, sin reflexión ni configuración global.
+- validated `Spec` and `Job` values;
+- portable arguments represented as `[JsonValue]`;
+- queues, priorities, and absolute or relative scheduling;
+- `perform_now`, `perform_later`, `perform_at`, and `perform_in`;
+- a replaceable `QueueAdapter` effect;
+- `enqueue` and `enqueue_at`, plus degradable bulk submission with `submit_all`;
+- a canonical JSON codec for future adapters;
+- an in-memory adapter with priority, FIFO ordering, queue filters, and history;
+- an explicit dispatcher, without reflection or global configuration.
 
-## Dependencia
+## Dependency
 
 ```toml
 [dependencies]
 anga = { path = "../anga" }
 ```
 
-Anga no depende de Manutara. Una aplicación web puede importarla sin acoplar el
-núcleo de jobs a HTTP.
+Anga does not depend on Manutara. A web application can import it without
+coupling the job core to HTTP.
 
-## Definir un job
+## Define a job
 
-Un job es una especificación normal. El nombre del worker es estable y sus
-argumentos deben poder cruzar una frontera JSON:
+A job is an ordinary specification. The worker name is stable, and its
+arguments must be able to cross a JSON boundary:
 
 ```kai
 import encoding.json
@@ -44,13 +44,13 @@ fn welcome_email(user_id: String) : Result[job.Spec, job.JobError] = {
 }
 ```
 
-Un entero de prioridad menor se ejecuta antes dentro de la misma selección de
-colas. Jobs con igual prioridad conservan orden FIFO.
+A lower priority integer runs first within the same queue selection. Jobs with
+the same priority preserve FIFO order.
 
-## Dispatcher de aplicación
+## Application dispatcher
 
-Kaikai no serializa closures ni busca módulos mediante reflexión. La aplicación
-traduce el nombre del worker a una función de manera exhaustiva:
+Kaikai does not serialize closures or discover modules through reflection. The
+application exhaustively maps a worker name to a function:
 
 ```kai
 import encoding.json
@@ -62,21 +62,21 @@ fn dispatch(worker: String, arguments: [JsonValue]) : Result[Unit, String] / Fil
 }
 ```
 
-Al cambiar el nombre de un worker, mantenga temporalmente un alias en este
-dispatcher para poder ejecutar documentos antiguos.
+When renaming a worker, temporarily keep an alias in this dispatcher so old
+documents can still run.
 
-## Ejecutar ahora
+## Run now
 
 ```kai
 let result = anga.perform_now(spec, dispatch)
 # Result[execution.Record, job.JobError]
-# / Clock + SecureRandom + efectos del dispatcher
+# / Clock + SecureRandom + dispatcher effects
 ```
 
-`perform_now` no toca ninguna cola. Materializa el job, incrementa el contador
-de ejecuciones y devuelve `Succeeded` o `Failed(message)` como datos.
+`perform_now` does not touch a queue. It materializes the job, increments the
+execution counter, and returns `Succeeded` or `Failed(message)` as data.
 
-## Encolar
+## Enqueue
 
 ```kai
 let queued = anga.perform_later(spec)
@@ -84,19 +84,20 @@ let queued = anga.perform_later(spec)
 # / Clock + SecureRandom + QueueAdapter
 ```
 
-Para scheduling:
+For scheduling:
 
 ```kai
 anga.perform_at(spec, time.WallTime { secs: 1_800_000_000, nanos: 0 })
 anga.perform_in(spec, time.minutes(15))
 ```
 
-La función elige `enqueue` o `enqueue_at` según el `Job`. El backend devuelve
-un receipt con su nombre y el ID aceptado.
+The function selects `enqueue` or `enqueue_at` based on the `Job`. The backend
+returns a receipt containing its name and the accepted ID.
 
-## Adapter en memoria
+## In-memory adapter
 
-El adapter no mantiene un singleton. Recibe estado y devuelve el estado nuevo:
+The adapter does not maintain a singleton. It receives state and returns the
+new state:
 
 ```kai
 import anga
@@ -110,22 +111,22 @@ let enqueue_result = run.value
 let queue_state = run.state
 ```
 
-`with_adapter` elimina `QueueAdapter` de la fila del body y deja pasar sus otros
-efectos, como `Clock` y `SecureRandom`.
+`with_adapter` removes `QueueAdapter` from the body's effect row and forwards
+its other effects, such as `Clock` and `SecureRandom`.
 
-La aplicación decide cuándo ejecutar trabajos listos:
+The application decides when to run ready jobs:
 
 ```kai
 let next = memory.perform_next(queue_state, time.now(), ["mailers"], dispatch)
 let drained = memory.drain_ready(next.state, time.now(), ["mailers"], dispatch)
 ```
 
-Una lista de colas vacía selecciona todas. Los jobs futuros permanecen
-pendientes y los IDs duplicados son rechazados sin cambiar el estado.
+An empty queue list selects all queues. Future jobs remain pending, and
+duplicate IDs are rejected without changing the state.
 
 ## Manutara
 
-Una action declara el efecto en su firma; no importa el adapter:
+An action declares the effect in its signature; the adapter is irrelevant:
 
 ```kai
 import encoding.json
@@ -147,33 +148,35 @@ fn create_report(ctx: context.Context) : Response / Clock + SecureRandom + Queue
   }
 ```
 
-El composition root instala memoria durante desarrollo o un adapter durable en
-producción. Controllers y dominio no cambian al migrar de backend.
+The composition root installs the memory adapter in development or a durable
+adapter in production. Controllers and domain code do not change when the
+backend changes.
 
-## Documento de cola
+## Queue document
 
 ```kai
 let document = codec.encode(materialized_job)
 let restored = codec.decode(document)
 ```
 
-El decoder revalida ID, worker, cola, prioridad, timestamps y contador de
-ejecuciones. Un backend persistente debe reutilizar este documento.
+The decoder revalidates the ID, worker, queue, priority, timestamps, and
+execution counter. A persistent backend should reuse this document.
 
-## Desarrollo
+## Development
 
 ```sh
 ./scripts/check.sh
 ```
 
-El script verifica formato canónico, typecheck, lint, pruebas y documentación
-pública.
+The script checks canonical formatting, typechecking, linting, tests, and
+public documentation.
 
-## Límites de memoria
+## Memory limitations
 
-El adapter en memoria es efímero, manual y no concurrente: pierde todo al
-reiniciar, no inicia workers y no debe usarse como backend de producción. Esto
-es intencional; mantiene estable y comprobable el contrato antes de agregar
-supervisión, locking, retries y persistencia.
+The in-memory adapter is ephemeral, manual, and non-concurrent: it loses all
+data on restart, does not start workers, and must not be used as a production
+backend. This is intentional; it keeps the contract stable and testable before
+adding supervision, locking, retries, and persistence.
 
-La arquitectura y las decisiones están en [`docs/design.md`](docs/design.md).
+The architecture and decisions are documented in
+[`docs/design.md`](docs/design.md).

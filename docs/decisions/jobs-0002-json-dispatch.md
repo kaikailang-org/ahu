@@ -1,29 +1,28 @@
-# ADR 0002: workers por nombre y argumentos JSON
+# ADR 0002: Workers by name with JSON arguments
 
-Estado: aceptada — 2026-08-12.
+Status: accepted — 2026-08-12.
 
-## Contexto
+## Context
 
-Active Job puede serializar objetos mediante serializers y GlobalID. Kaikai no
-tiene reflexión de módulos en runtime y una función/closure no es un payload
-portable para una cola durable.
+Active Job can serialize objects through serializers and GlobalID. Kaikai does
+not have runtime module reflection, and a function or closure is not a portable
+payload for a durable queue.
 
-## Decisión
+## Decision
 
-Un job contiene el nombre estable del worker y `[JsonValue]`. La aplicación
-provee un dispatcher exhaustivo que traduce ese nombre a una función tipada.
-`anga.codec` define la representación canónica para adaptadores futuros.
+A job contains a stable worker name and `[JsonValue]`. The application provides
+an exhaustive dispatcher that maps the name to a typed function. `anga.codec`
+defines the canonical representation for future adapters.
 
-## Alternativas
+## Alternatives
 
-- Guardar closures: impide persistencia y despliegues con versiones distintas.
-- `String` sin estructura para argumentos: traslada parsing e invariantes a
-  cada worker.
-- Importar Tino: útil para modelos de borde complejos, pero innecesario en el
-  contrato base; cada aplicación puede validarlos con Tino antes de encolar.
+- Store closures: prevents persistence and deployments across versions.
+- Use an unstructured `String` for arguments: pushes parsing and invariants
+  into every worker.
+- Import Tino: useful for complex boundary models, but unnecessary in the base
+  contract; each application can validate them with Tino before enqueueing.
 
-## Consecuencias
+## Consequences
 
-Los límites de serialización son evidentes. Renombrar un worker es un cambio de
-compatibilidad que debe acompañarse con un alias en el dispatcher mientras
-existan jobs antiguos.
+Serialization boundaries are evident. Renaming a worker is a compatibility
+change that must include an alias in the dispatcher while old jobs exist.
