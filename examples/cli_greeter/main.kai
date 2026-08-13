@@ -1,0 +1,20 @@
+import ao
+
+fn greet(context: ao.Context) : Result[Unit, String] / Stdout = match ao.argument(context, "NAME") {
+  None -> Err("missing NAME")
+  Some(name) -> {
+    let greeting = option.unwrap_or(ao.text(context, "greeting"), "Hello")
+    let message = "#{greeting}, #{name}!"
+    Stdout.print(if ao.boolean(context, "loud") {
+      "#{message.to_upper()}\n"
+    } else {
+      "#{message}\n"
+    })
+    Ok(())
+  }
+}
+
+fn main() : Int / Env + Stdout + Stderr {
+  let application = ao.app("greeter", "A small Ao example") |> ao.versioned("0.1.0") |> ao.add_command(ao.command("greet", "Greet one person", greet) |> ao.command_alias("hello") |> ao.with_argument(ao.required_argument("NAME", "Person to greet.")) |> ao.with_option(ao.text_option("greeting", "Words placed before the name.") |> ao.short("g") |> ao.value_name("WORDS")) |> ao.with_option(ao.boolean_option("loud", "Print the greeting in uppercase.") |> ao.short("l")))
+  ao.run(application)
+}
