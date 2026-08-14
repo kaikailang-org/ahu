@@ -42,6 +42,7 @@ pub type ActionError
   = FileFailure(String, String)
   | ExistingFile(String)
   | MissingMarker(String, String)
+  | MalformedManagedBlock(String, String)
   | TemplateFailure(TemplateError)
 
 #[doc("Creates one template binding.")]
@@ -160,6 +161,7 @@ pub fn action_error_message(value: ActionError) : String = match value {
   FileFailure(path, message) -> "file action failed for `#{path}`: #{message}"
   ExistingFile(path) -> "file `#{path}` already exists with different contents"
   MissingMarker(path, marker) -> "marker `#{marker}` was not found in `#{path}`"
+  MalformedManagedBlock(path, identity) -> "managed block `#{identity}` is malformed in `#{path}`"
   TemplateFailure(error) -> template_error_message(error)
 }
 
@@ -224,6 +226,59 @@ pub fn inject_after(path: String, marker: String, contents: String) : Result[Cha
       let before = string.slice(existing, 0, split)
       let after = string.slice(existing, split, string.length(existing) - split)
       create_file(path, "#{before}#{contents}#{after}", OverwriteExisting)
+    }
+  }
+}
+
+fn managed_marker(identity: String, suffix: String) : String = "# manutara:#{identity}:#{suffix}"
+
+fn managed_contents(identity: String, contents: String) : String {
+  let body = if string.ends_with(contents, "\n") {
+    contents
+  } else {
+    "#{contents}\n"
+  }
+  "#{managed_marker(identity, "start")}\n#{body}#{managed_marker(identity, "end")}"
+}
+
+fn line_end_after(value: String, marker_end: Int) : Int {
+  let tail = string.slice(value, marker_end, string.length(value) - marker_end)
+  match string.index_of(tail, "\n") {
+    None -> string.length(value)
+    Some(relative) -> (marker_end + relative) + 1
+  }
+}
+
+#[doc("Creates or replaces one named managed block after an anchor without duplicating it on reruns.")]
+pub fn upsert_managed_block(path: String, anchor: String, identity: String, contents: String) : Result[Change, ActionError] / File = match read_file(path) {
+  Err(message) -> Err(FileFailure(path, message))
+  Ok(existing) -> {
+    let start_marker = managed_marker(identity, "start")
+    let end_marker = managed_marker(identity, "end")
+    match (string.index_of(existing, start_marker), string.index_of(existing, end_marker)) {
+      (None, None) -> match string.index_of(existing, anchor) {
+        None -> Err(MissingMarker(path, anchor))
+        Some(anchor_index) -> {
+          let split = line_end_after(existing, anchor_index + string.length(anchor))
+          let before = string.slice(existing, 0, split)
+          let after = string.slice(existing, split, string.length(existing) - split)
+          let separator = if string.ends_with(before, "\n") {
+            ""
+          } else {
+            "\n"
+          }
+          create_file(path, "#{before}#{separator}#{managed_contents(identity, contents)}\n#{after}", OverwriteExisting)
+        }
+      }
+      (Some(start_index), Some(end_index)) -> if end_index < start_index {
+        Err(MalformedManagedBlock(path, identity))
+      } else {
+        let finish = end_index + string.length(end_marker)
+        let before = string.slice(existing, 0, start_index)
+        let after = string.slice(existing, finish, string.length(existing) - finish)
+        create_file(path, "#{before}#{managed_contents(identity, contents)}#{after}", OverwriteExisting)
+      }
+      _ -> Err(MalformedManagedBlock(path, identity))
     }
   }
 }
