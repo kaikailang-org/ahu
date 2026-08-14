@@ -124,6 +124,20 @@ let drained = memory.drain_ready(next.state, time.now(), ["mailers"], dispatch)
 An empty queue list selects all queues. Future jobs remain pending, and
 duplicate IDs are rejected without changing the state.
 
+## Adapter selection
+
+| Adapter | Queue lifetime | Consumer |
+| --- | --- | --- |
+| Inline | No waiting queue | The adapter executes before acknowledging enqueue |
+| Memory | Lifetime of the retained immutable `memory.State` | The owning process calls `perform_next` or `drain_ready` |
+| Manutara Solid Queue | Durable SQLite rows | A separate polling worker claims and finalizes jobs |
+
+Inline is an application-specific adapter rather than part of Anga's core;
+Manutara Storage provides one that dispatches its analysis and variant workers.
+See its [queue adapter guide](../manutara-storage/docs/queue-adapters.md) for
+complete inline, memory, and Solid wiring. Solid Queue's durable implementation
+is documented in [Manutara Solid Queue](../manutara-solid-queue/README.md).
+
 ## Manutara
 
 An action declares the effect in its signature; the adapter is irrelevant:

@@ -77,10 +77,17 @@ test "perform_now materializes and dispatches without QueueAdapter" {
     bytes(n, resume) -> resume(list.take([0..31], n))
   }
   assert match result {
-    Ok(record) -> match record.outcome {
-      Succeeded -> job.executions(record.job) == 1
-      Failed(_) -> false
-    }
+    Ok(record) -> (execution.succeeded(record) and (execution.failure_message(record) == None)) and (job.executions(record.job) == 1)
     Err(_) -> false
   }
+}
+
+test "execution accessors expose worker failures without external pattern matching" {
+  let value = match job.materialize_with(expect_spec(job.new("broken", [])), "job-failed", time.WallTime { secs: 100, nanos: 0 }) {
+    Err(_error) -> panic("expected valid job")
+    Ok(found) -> found
+  }
+  let record = execution.perform(value, (_worker, _arguments) => Err("boom"))
+  assert not execution.succeeded(record)
+  assert execution.failure_message(record) == Some("boom")
 }
