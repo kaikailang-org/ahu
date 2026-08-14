@@ -4,46 +4,46 @@ import encoding.json
 
 import time
 
-import anga.adapter
+import anga.adapter as anga_api_adapter
 
-import anga.execution
+import anga.execution as anga_api_execution
 
-import anga.job
+import anga.job as anga_api_job
 
 #[doc("The semantic version of the Anga package.")]
 pub const VERSION : String = "0.1.0"
 
 #[doc("A materialized job paired with backend acceptance evidence.")]
-pub type Enqueued = { job: job.Job, receipt: adapter.Receipt }
+pub type Enqueued = { job: anga_api_job.Job, receipt: anga_api_adapter.Receipt }
 
 #[doc("A recoverable materialization or adapter failure.")]
 pub type EnqueueError
-  = InvalidJob(job.JobError)
-  | QueueFailure(adapter.AdapterError)
+  = InvalidJob(anga_api_job.JobError)
+  | QueueFailure(anga_api_adapter.AdapterError)
 
 #[doc("Materializes and submits a validated job specification.")]
-pub fn perform_later(value: job.Spec) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = match job.materialize(value) {
+pub fn perform_later(value: anga_api_job.Spec) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = match anga_api_job.materialize(value) {
   Err(error) -> Err(InvalidJob(error))
-  Ok(materialized) -> match adapter.submit(materialized) {
+  Ok(materialized) -> match anga_api_adapter.submit(materialized) {
     Err(error) -> Err(QueueFailure(error))
     Ok(receipt) -> Ok(Enqueued { job: materialized, receipt: receipt })
   }
 }
 
 #[doc("Schedules for an absolute wall time, then materializes and submits.")]
-pub fn perform_at(value: job.Spec, at: time.WallTime) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = perform_later(job.wait_until(value, at))
+pub fn perform_at(value: anga_api_job.Spec, at: time.WallTime) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = perform_later(anga_api_job.wait_until(value, at))
 
 #[doc("Schedules relative to now, then materializes and submits.")]
-pub fn perform_in(value: job.Spec, delay: time.Duration) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = match job.wait_for(value, delay, time.now()) {
+pub fn perform_in(value: anga_api_job.Spec, delay: time.Duration) : Result[Enqueued, EnqueueError] / Clock + SecureRandom + QueueAdapter = match anga_api_job.wait_for(value, delay, time.now()) {
   Err(error) -> Err(InvalidJob(error))
   Ok(delayed) -> perform_later(delayed)
 }
 
 #[doc("Materializes and executes a specification immediately without a queue adapter.")]
-pub fn perform_now[e](value: job.Spec, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Result[execution.Record, job.JobError] / Clock + SecureRandom + e = match job.materialize(value) {
-  Ok(materialized) -> Ok(execution.perform(materialized, dispatch))
+pub fn perform_now[e](value: anga_api_job.Spec, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Result[anga_api_execution.Record, anga_api_job.JobError] / Clock + SecureRandom + e = match anga_api_job.materialize(value) {
+  Ok(materialized) -> Ok(anga_api_execution.perform(materialized, dispatch))
   Err(error) -> Err(error)
 }
 
 #[doc("Executes an already materialized job through an explicit dispatcher.")]
-pub fn execute[e](value: job.Job, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : execution.Record / e = execution.perform(value, dispatch)
+pub fn execute[e](value: anga_api_job.Job, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : anga_api_execution.Record / e = anga_api_execution.perform(value, dispatch)

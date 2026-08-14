@@ -2,7 +2,7 @@
 
 import encoding.json
 
-import anga.job
+import anga.job as anga_execution_job
 
 #[doc("The result of one worker invocation.")]
 pub type Outcome
@@ -10,12 +10,12 @@ pub type Outcome
   | Failed(String)
 
 #[doc("One attempted execution and its immutable outcome.")]
-pub type Record = { job: job.Job, outcome: Outcome }
+pub type Record = { job: anga_execution_job.Job, outcome: Outcome }
 
 #[doc("Runs one job without reflection and records the attempted execution.")]
-pub fn perform[e](value: job.Job, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Record / e {
-  let attempted = job.advance_execution(value)
-  let outcome = match dispatch(job.worker(attempted), job.arguments(attempted)) {
+pub fn perform[e](value: anga_execution_job.Job, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Record / e {
+  let attempted = anga_execution_job.advance_execution(value)
+  let outcome = match dispatch(anga_execution_job.worker(attempted), anga_execution_job.arguments(attempted)) {
     Ok(_) -> Succeeded
     Err(message) -> Failed(message)
   }
