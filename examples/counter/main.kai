@@ -20,7 +20,6 @@
 #   - Graceful shutdown: counter receives Stop, returns Done,
 #     fiber exits.
 
-import spawn
 import actor
 import ahu.cell
 

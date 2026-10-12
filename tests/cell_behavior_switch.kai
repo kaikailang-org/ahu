@@ -14,7 +14,6 @@
 # Resume. Snapshot reports the value AND the variant tag so the
 # test can assert "behavior changed at the right time".
 
-import spawn
 import actor
 import ahu.cell
 

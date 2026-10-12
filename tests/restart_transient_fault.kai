@@ -14,7 +14,6 @@
 # than a constant the compiler could fold away.
 
 import actor
-import spawn
 import ahu.restart
 
 fn opaque_zero(n: Int) : Int = n - n
