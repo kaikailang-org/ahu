@@ -27,10 +27,14 @@
 #     producer fiber when the slots are full.
 #   - Sentinel-driven shutdown (`""` empty string marks end of
 #     stream).
-#   - Deterministic output under the kaikai cooperative
-#     scheduler (FIFO ready queue + send/receive wake order).
+#   - A reproducible trace, which takes a single scheduler
+#     thread: the produce and consume lines are printed by two
+#     different fibers, and only one thread orders prints across
+#     fibers. With several, the same events appear in another
+#     interleaving — the back-pressure bound still holds, but the
+#     line order no longer witnesses it. The suite runs this
+#     fixture with one thread for that reason.
 
-import spawn
 import actor
 
 fn produce_loop(target: Pid[String], lines: [String], i: Int)
