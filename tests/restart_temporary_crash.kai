@@ -10,7 +10,6 @@
 # policy that does not retry.
 
 import actor
-import spawn
 import ahu.restart
 
 fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = {

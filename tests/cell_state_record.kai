@@ -9,7 +9,6 @@
 # State type — the design's claim that "state is the recursion
 # argument" works for records, not just primitives.
 
-import spawn
 import actor
 import ahu.cell
 
