@@ -21,7 +21,6 @@
 #     composes through the outer Cancel handler — the
 #     BEAM-faithful supervision semantics.
 
-import spawn
 import actor
 import ahu.cell
 import ahu.restart

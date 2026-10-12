@@ -10,7 +10,6 @@
 # scheduler a window to run the cell's step before the driver
 # (and main) exit, so the cell's print line is observable.
 
-import spawn
 import actor
 import ahu.cell
 

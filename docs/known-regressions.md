@@ -7,18 +7,8 @@ upstream kaikai issue tracker, not here.
 
 ## Active
 
-**No active blockers for tier0/tier1.** All fixtures compile and the
-run-and-diff suite passes under both backends, with one documented
-limitation:
-
-- **`examples/log_demo`** reports `effect not handled in fiber: Log`.
-  A cell runs in its own fiber and does not inherit a `Log` handler
-  installed outside it, so logging directly from a cell step is
-  unsupported — a cell can perform only effects handled within its
-  own fiber (`Actor`, plus the native `Console` leaves). The fixture
-  is left running so the limitation stays visible; logging from a
-  cell needs a different shape (route events through the cell's
-  mailbox, or log from the driver/supervisor fiber).
+**No active blockers for tier0/tier1.** Every fixture compiles and the
+run-and-diff suite passes under both backends.
 
 ## Workarounds applied in this repository
 

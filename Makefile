@@ -33,6 +33,13 @@ EXAMPLE_NAMES  = $(patsubst examples/%/main.kai,%,$(EXAMPLE_KAI))
 TIER1_SKIP_RUN = echo
 EXAMPLE_RUN_NAMES = $(filter-out $(TIER1_SKIP_RUN),$(EXAMPLE_NAMES))
 
+# Fixtures whose expected trace records the order in which two fibers
+# printed. Only one scheduler thread orders those prints across
+# fibers; with more, the same events appear in another interleaving.
+# Named one by one rather than pinned suite-wide, so every other
+# fixture keeps running multi-threaded, where a real race still shows.
+TIER1_SINGLE_THREAD = backpressured_etl
+
 TEST_BINS      = $(addprefix $(BUILD)/,$(TEST_NAMES))
 EXAMPLE_BINS   = $(addprefix $(BUILD)/,$(EXAMPLE_NAMES))
 ALL_BINS       = $(TEST_BINS) $(EXAMPLE_BINS)
@@ -59,7 +66,7 @@ tier1-fixtures: $(ALL_BINS)
 	  exp="tests/$$n.out.expected"; \
 	  out="$(BUILD)/$$n.out"; \
 	  if [ ! -f "$$exp" ]; then echo "tier1: missing $$exp"; exit 1; fi; \
-	  "$$bin" > "$$out"; \
+	  case " $(TIER1_SINGLE_THREAD) " in *" $$n "*) env KAI_THREADS=1 "$$bin" > "$$out" ;; *) "$$bin" > "$$out" ;; esac; \
 	  diff -u "$$exp" "$$out" || { echo "tier1: $$n FAIL"; exit 1; }; \
 	  echo "tier1: $$n OK"; \
 	done; \
@@ -68,7 +75,7 @@ tier1-fixtures: $(ALL_BINS)
 	  exp="examples/$$n/main.out.expected"; \
 	  out="$(BUILD)/$$n.out"; \
 	  if [ ! -f "$$exp" ]; then echo "tier1: missing $$exp"; exit 1; fi; \
-	  "$$bin" > "$$out"; \
+	  case " $(TIER1_SINGLE_THREAD) " in *" $$n "*) env KAI_THREADS=1 "$$bin" > "$$out" ;; *) "$$bin" > "$$out" ;; esac; \
 	  diff -u "$$exp" "$$out" || { echo "tier1: example/$$n FAIL"; exit 1; }; \
 	  echo "tier1: example/$$n OK"; \
 	done; \

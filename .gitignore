@@ -16,3 +16,6 @@
 # Local agent / lane scratch
 /tmp/
 .envrc.local
+
+# Compiler module cache, written beside the package manifest.
+.kai-cache/

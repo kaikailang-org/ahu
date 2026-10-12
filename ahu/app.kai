@@ -12,7 +12,7 @@ The shape:
 ```kaikai
 nursery { n ->
   let r = n.spawn(root)                       # root fiber
-  let w = n.spawn(() => wait_and_cancel(r))   # signal waiter
+  let w = n.spawn(waiter)                     # signals -> cancel(r)
   n.await(r)                                  # parks on root
   n.cancel(w)                                 # release the waiter
 }
@@ -58,19 +58,21 @@ three in `main`'s row, where the runtime installs default handlers.
 pub fn run_app[e](root: () -> Unit / e) : Unit / Spawn + Signal + Cancel + e =
   nursery { n ->
     let r = n.spawn(root)
-    let w = n.spawn(() => wait_and_cancel(r))
+    # The waiter is inline rather than a helper so the branded fiber
+    # `r` never crosses a function boundary: a helper taking it as a
+    # parameter drops brand tracking, and the compiler can no longer
+    # rule out a sibling nursery misusing the fiber. It subscribes to
+    # SIGINT + SIGTERM, parks until either arrives, then cancels root
+    # so its Cancel handlers run; the cancel is the whole side effect.
+    # If root finishes first the nursery cancels the waiter at the
+    # `Signal.await()` park boundary, and the runtime's default Signal
+    # handler tears the subscribed set down on exit.
+    let w = n.spawn(() => {
+      Signal.on(SigInt)
+      Signal.on(SigTerm)
+      let _ = Signal.await()
+      Spawn.cancel(r)
+    })
     n.await(r)
     n.cancel(w)
   }
-
-# Subscribe to SIGINT + SIGTERM, park until either arrives, then
-# cancel the root fiber so its Cancel handlers run. The side effect
-# is the cancel. If root finishes first the nursery cancels this
-# fiber at the `Signal.await()` park boundary, and the runtime's
-# default Signal handler tears the subscribed set down on exit.
-fn wait_and_cancel(target: Fiber[Unit]) : Unit / Signal + Spawn + Cancel = {
-  Signal.on(SigInt)
-  Signal.on(SigTerm)
-  let _ = Signal.await()
-  Spawn.cancel(target)
-}

@@ -38,7 +38,6 @@
 # cell's step. A real application running under `ahu.app.run_app`
 # would let the default handler print to stderr untouched.
 
-import spawn
 import actor
 import time
 import ahu.cell

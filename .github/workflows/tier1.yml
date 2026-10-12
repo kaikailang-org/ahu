@@ -43,12 +43,6 @@ jobs:
           repository: lnds/kaikai
           ref: ${{ env.KAIKAI_REF }}
           path: kaikai
-          # `lnds/kaikai` is currently a private repository, so the
-          # default GITHUB_TOKEN cannot reach it. Configure a PAT
-          # with `repo:read` scope on `lnds/kaikai` and store it as
-          # the repository secret `KAIKAI_REPO_TOKEN`. When kaikai
-          # goes public this `token` line can be removed.
-          token: ${{ secrets.KAIKAI_REPO_TOKEN }}
 
       - name: Toolchain versions
         run: |

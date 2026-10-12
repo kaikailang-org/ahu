@@ -17,7 +17,6 @@
 # channel as a "Crashed" message in its own mailbox.
 
 import actor
-import spawn
 import ahu.restart
 
 fn body(parent: Pid[String]) : Unit / Actor[String] + Link + Console + Cancel = {

@@ -16,7 +16,6 @@
 #     through the supervisor.
 
 import actor
-import spawn
 import ahu.cell
 import ahu.restart
 

@@ -14,7 +14,6 @@
 #     other) — discrimination stays in the driver, as the header
 #     calls out.
 
-import spawn
 import actor
 import ahu.cell
 
