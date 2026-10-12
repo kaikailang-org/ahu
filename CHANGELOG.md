@@ -6,6 +6,37 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-12
+
+### Fixed
+
+- **The order-sensitive fixture runs on one scheduler thread.** The
+  `backpressured_etl` trace records the order in which two fibers
+  printed, and only one scheduler thread orders prints across fibers;
+  with several, the same events arrive in another interleaving and the
+  run-and-diff fails. The back-pressure bound holds either way — the
+  event multiset matches on every run — so what broke was the
+  fixture's premise, not the mailbox policy. The fixture is named one
+  by one rather than pinned suite-wide, so every other fixture keeps
+  running multi-threaded, where a real race still shows.
+- **A clean build emits no warnings.** Seventeen fixtures carried an
+  `import spawn` nothing referenced, and `run_app` handed its branded
+  root fiber to a helper, which dropped brand tracking and reported it
+  on every build — in a library, that warning lands in each consumer's
+  output. Inlining the signal waiter into the nursery body keeps the
+  brand where it can be tracked, with the same shape and the same
+  guarantees.
+
+### Changed
+
+- **`.kai-cache/` is ignored.** Every other package in the ecosystem
+  already ignores the compiler module cache; ahu left it as untracked
+  noise after a build.
+- **CI reaches the compiler with the default credentials.** The
+  checkout passed an explicit token, so once that secret expired the
+  step failed there instead of falling back to unauthenticated access,
+  taking every run down before ahu was built.
+
 ## [0.2.1] - 2026-07-18
 
 ### Fixed
