@@ -17,7 +17,6 @@
 # The service submits three jobs, asks the cell for the total with
 # `cell.ask`, reports it, and returns — `run_app` then exits cleanly.
 
-import spawn
 import actor
 import ahu.cell
 import ahu.restart

@@ -17,7 +17,6 @@
 # natural-exit path, which is the second of `run_app`'s two
 # behaviours.
 
-import spawn
 import ahu.app
 
 fn root() : Unit / Stdout = {
