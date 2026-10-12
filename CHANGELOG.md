@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Changed
+
+- **CI installs the released compiler instead of building one.** The
+  workflow cloned the compiler's development repository and bootstrapped
+  it through three stages on every run — thirteen minutes, against a
+  revision no release corresponds to. It now installs the current
+  release with the official installer, which is self-contained and
+  needs no LLVM, and nothing is pinned, so a compiler change that
+  breaks ahu still surfaces here.
+
 ## [0.2.2] - 2026-10-12
 
 ### Fixed
