@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.2"
+version = "0.2.3"
 version_scheme = "semver"
 major_version_zero = true
 tag_format = "v$version"
