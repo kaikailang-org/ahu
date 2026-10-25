@@ -21,7 +21,6 @@ Imported as `import ahu.cell`; functions are dotted
 """)]
 
 import actor
-import spawn
 
 #[doc("""
 The result of one cell step: `Continue(state)` to loop with the next
