@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-25
+
+### Fixed
+
+- **ahu builds again on the current compiler.** From kaikai 0.167.0
+  through 0.176.0 the typer rejected `restart.restartable_cell`: its
+  body lambda spawns and then runs the caller's callbacks, and a lambda
+  performing a concrete effect ahead of a rigid row was refused for a
+  `Label + e` parameter. kaikai 0.177.0 accepts it again, unchanged;
+  0.177.0 is the oldest release ahu builds on since 0.166.0.
+- **A clean build emits no warnings.** `ahu/cell.kai` imported `spawn`,
+  which nothing in it uses any more.
+
 ### Changed
 
 - **CI installs the released compiler instead of building one.** The
