@@ -1,6 +1,6 @@
-import dotenv
+import ahu.dotenv
 
-import dotenv.parser
+import ahu.dotenv.parser
 
 fn parsed(source: String) : parser.Document = match dotenv.parse(source) {
   Ok(document) -> document

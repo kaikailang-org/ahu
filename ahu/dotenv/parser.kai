@@ -50,11 +50,11 @@ pub fn template(value: Document) : String = (value.entries_value | (entry => "#{
 
 fn horizontal(char: Char) : Bool = (char == ' ') or (char == '\t')
 
-fn name_start(char: Char) : Bool = char.is_alpha() or (char == '_')
+fn name_start(char: Char) : Bool = (char |> is_alpha()) or (char == '_')
 
-fn name_char(char: Char) : Bool = char.is_alnum() or ((char == '_') or (char == '.'))
+fn name_char(char: Char) : Bool = (char |> is_alnum()) or ((char == '_') or (char == '.'))
 
-fn variable_char(char: Char) : Bool = char.is_alnum() or (char == '_')
+fn variable_char(char: Char) : Bool = (char |> is_alnum()) or (char == '_')
 
 fn byte_at(value: String, offset: Int) : Option[Char] = char_at(value, offset)
 
@@ -201,7 +201,7 @@ fn raw_value(logical: LogicalLine, offset: Int) : Result[RawValue, ParseError] {
       }
     } else {
       let finish = find_comment(logical.source, start)
-      Ok(RawValue { source: string.slice(logical.source, start, finish - start).trim_right(), interpolate: true, offset: start })
+      Ok(RawValue { source: string.slice(logical.source, start, finish - start) |> trim_right(), interpolate: true, offset: start })
     }
   }
 }
@@ -227,7 +227,7 @@ fn expand_value(value: String, logical: LogicalLine, source_offset: Int, entries
       None -> Err(failure(logical, source_offset + offset, InvalidVariable(string.slice(value, offset, string.length(value) - offset)), "unclosed braced variable reference"))
       Some(close) -> {
         let name = string.slice(value, offset + 2, (close - offset) - 2)
-        if string.is_empty(name) or (not list.all(name.chars(), variable_char)) {
+        if string.is_empty(name) or (not list.all(string.chars(name), variable_char)) {
           Err(failure(logical, source_offset + offset, InvalidVariable(name), "invalid braced variable reference"))
         } else {
           let replacement = option.unwrap_or(lookup_value(entries, base, name), "")

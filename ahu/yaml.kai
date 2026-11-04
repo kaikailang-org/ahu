@@ -1,14 +1,14 @@
 #[doc("Safe YAML 1.2 parsing, loading and canonical serialization for Kaikai applications.")]
 
-import yaml.encoder
+import ahu.yaml.encoder
 
-import yaml.errors as yaml_errors
+import ahu.yaml.errors as yaml_errors
 
-import yaml.loader
+import ahu.yaml.loader
 
-import yaml.parser
+import ahu.yaml.parser
 
-import yaml.value
+import ahu.yaml.value
 
 #[doc("The semantic version of the kai-yaml package.")]
 pub const VERSION : String = "0.1.0"

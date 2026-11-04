@@ -1,8 +1,10 @@
-import yaml
+import ahu.yaml
 
-import yaml.errors as yaml_errors
+import ahu.yaml.errors as yaml_errors
 
-import yaml.value
+import ahu.yaml.errors.{DuplicateKey, InvalidIndentation, MultipleDocuments, UnsupportedFeature}
+
+import ahu.yaml.value
 
 fn parsed(source: String) : YamlValue = match yaml.parse(source) {
   Ok(found) -> found

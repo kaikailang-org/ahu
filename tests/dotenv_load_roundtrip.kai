@@ -1,4 +1,6 @@
-import dotenv
+import ahu.dotenv
+
+import fs.file
 
 import os.env
 
@@ -8,7 +10,7 @@ fn fail(message: String) : Int / Stderr {
 }
 
 fn cleanup(path: String) : Unit / File + Env {
-  let _ = file_delete(path)
+  let _ = file.delete(path)
   let _ = env.unset("KAI_DOTENV_NAME")
   let _ = env.unset("KAI_DOTENV_URL")
   ()
@@ -17,7 +19,7 @@ fn cleanup(path: String) : Unit / File + Env {
 fn main() : Int / File + Env + Stderr {
   let path = "/tmp/kai_dotenv_load_roundtrip.env"
   cleanup(path)
-  let _ = write_file(path, "KAI_DOTENV_NAME=file\nKAI_DOTENV_URL=https://${KAI_DOTENV_NAME}.test\n")
+  let _ = file.write(path, "KAI_DOTENV_NAME=file\nKAI_DOTENV_URL=https://${KAI_DOTENV_NAME}.test\n")
   let _ = env.set("KAI_DOTENV_NAME", "process")
   let preserved = dotenv.load_files([path], dotenv.options())
   if preserved != Ok(Report { files: [path], loaded: ["KAI_DOTENV_URL"], preserved: ["KAI_DOTENV_NAME"] }) {

@@ -1,10 +1,12 @@
-import yaml
+import ahu.yaml
 
-import yaml.errors as yaml_errors
+import ahu.yaml.errors as yaml_errors
 
-import yaml.loader
+import ahu.yaml.errors.{ReadError}
 
-import yaml.value
+import ahu.yaml.loader
+
+import ahu.yaml.value
 
 fn parsed(source: String) : YamlValue = match yaml.parse(source) {
   Ok(found) -> found

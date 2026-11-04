@@ -1,6 +1,8 @@
 #[doc("Deterministic YAML block-style serialization for the kai-yaml value model.")]
 
-import yaml.value as node
+import ahu.yaml.value as node
+
+import ahu.yaml.value.{YNull, YBool, YInt, YReal, YString, YSequence, YMapping}
 
 fn hex_digit(value: Int) : String = string.slice("0123456789ABCDEF", value, 1)
 

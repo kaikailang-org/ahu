@@ -1,4 +1,4 @@
-import dotenv
+import ahu.dotenv
 
 import os.env
 

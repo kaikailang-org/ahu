@@ -213,6 +213,8 @@ is required.
   doc (e.g. `kai doc ahu/log`, `kai doc ahu/log.info_kv`).
 - **`docs/design.md`** — surface, decisions, external
   dependencies on kaikai, not-goals, references.
+- **`docs/dotenv.md`**, **`docs/yaml.md`** — the configuration
+  modules `ahu.dotenv` and `ahu.yaml`.
 - **`docs/roadmap.md`** — components and their state; the
   shape ahu uses instead of milestones.
 - **`docs/known-regressions.md`** — open issues outside this

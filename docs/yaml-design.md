@@ -1,6 +1,6 @@
-# kai-yaml 0.1 design
+# ahu.yaml design
 
-`kai-yaml` is the YAML serialization boundary for the Kaikai ecosystem. Reo is
+`ahu.yaml` is the YAML serialization boundary for the Kaikai ecosystem. Reo is
 its first consumer, but the package contains no language, translation, or
 pluralization concepts.
 
@@ -15,7 +15,7 @@ pluralization concepts.
 
 Preserving comments while editing, accepting multi-document streams,
 implementing the anchor/alias graph, and covering every YAML grammar production
-are not goals for 0.1.
+are not goals.
 
 ## Layers
 
@@ -40,7 +40,7 @@ The model reflects YAML's three primitives—scalar, sequence, and mapping—and
 resolves the everyday subset of the YAML 1.2 core schema: null, booleans,
 decimal integers, and finite real numbers. `yes`, `no`, `on`, and `off` remain
 strings, preventing the surprising coercion inherited from YAML 1.1. Octal and
-hexadecimal forms, infinities, and NaN remain strings in 0.1.
+hexadecimal forms, infinities, and NaN remain strings.
 
 Mappings use `[Pair[String, YamlValue]]` rather than `Map`. This preserves
 source order and allows duplicate keys to be detected before information is
@@ -67,8 +67,8 @@ indentation indicators are rejected.
 ## Security
 
 Tags, anchors, aliases, and merge keys change the model from a tree to a graph
-and can trigger application-specific construction in other ecosystems. Version
-0.1 recognizes them at their starting positions and returns
+and can trigger application-specific construction in other ecosystems. The
+parser recognizes them at their starting positions and returns
 `UnsupportedFeature`; it never silently treats them as text.
 
 Duplicate keys return `DuplicateKey`. Adopting “first wins” or “last wins”
@@ -106,7 +106,7 @@ restriction into a global parser rule.
 
 ## Evolution
 
-1. 0.1: safe configuration subset, loader, and canonical encoder.
-2. 0.2: streams through a separate API and complete multiline scalars.
+1. Today: safe configuration subset, loader, and canonical encoder.
+2. Next: streams through a separate API and complete multiline scalars.
 3. Future: anchors and aliases as an explicit graph, only when a use case
    justifies expansion limits, cycle detection, and a safe API.

@@ -1,10 +1,10 @@
-# kai-dotenv
+# ahu.dotenv
 
-kai-dotenv loads development and test configuration from `.env` files into a
+`ahu.dotenv` loads development and test configuration from `.env` files into a
 Kaikai process environment. Parsing is available independently, so tools can
 inspect or validate configuration without mutating process-wide state.
 
-Version 0.1 supports:
+It supports:
 
 - unquoted, single-quoted, double-quoted, empty, and multiline values;
 - `export NAME=value`, `NAME=value`, and `NAME: value` assignments;
@@ -20,23 +20,16 @@ Version 0.1 supports:
 Dotenv files are treated strictly as data. Shell command substitution with
 `$()` is rejected and never executed.
 
-## Dependency
-
-```toml
-[dependencies]
-dotenv = { path = "../kai-dotenv" }
-```
-
-Applications import the `dotenv` module:
+## Import
 
 ```kai
-import dotenv
+import ahu.dotenv
 ```
 
 ## Load `.env`
 
 ```kai
-import dotenv
+import ahu.dotenv
 
 fn main() : Int / File + Env + Stderr = match dotenv.load() {
   Ok(_report) -> 0
@@ -50,7 +43,7 @@ fn main() : Int / File + Env + Stderr = match dotenv.load() {
 An absent default `.env` is ignored. Existing process variables are preserved,
 because deployment configuration has precedence over local files.
 
-To run the included example from the package directory, create a `.env` file:
+To run the included example from ahu's root, create a `.env` file:
 
 ```dotenv
 APP_NAME=Kaikai
@@ -59,7 +52,7 @@ APP_NAME=Kaikai
 Then execute:
 
 ```sh
-kai run examples/load.kai
+kai run examples/dotenv_load/main.kai
 ```
 
 ## Load several files
@@ -89,8 +82,8 @@ copies secret values into logs or diagnostics.
 ## Parse without side effects
 
 ```kai
-import dotenv
-import dotenv.parser
+import ahu.dotenv
+import ahu.dotenv.parser
 
 let document = dotenv.parse("HOST=localhost\nPORT=4100\n")!
 let host = parser.get(document, "HOST")
@@ -152,11 +145,7 @@ let template = parser.template(document)
 # PORT=PORT
 ```
 
-## Development
+## Tests
 
-```sh
-./scripts/check.sh
-```
-
-The check validates canonical formatting, typechecking, linting, pure parser
-tests, a real file/environment round-trip, the example, and public docs.
+`make tier1` runs the parser tests in `tests/unit/dotenv_parser_test.kai` and
+the file/environment round-trip in `tests/dotenv_load_roundtrip.kai`.

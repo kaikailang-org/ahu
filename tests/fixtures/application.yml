@@ -1,7 +1,0 @@
-es:
-  welcome:
-    title: "Hola, %{name}"
-    inbox:
-      one: "Tienes un mensaje"
-      other: "Tienes %{count} mensajes"
-  navigation: [inicio, perfil]

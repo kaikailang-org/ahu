@@ -22,7 +22,9 @@ BUILD = build
 #                                expected tests/<name>.out.expected
 #   examples/<name>/main.kai  -> binary $(BUILD)/<name>,
 #                                expected examples/<name>/main.out.expected
+# Files under tests/unit/ hold `test` blocks and run through `kai test`.
 TEST_KAI       = $(wildcard tests/*.kai)
+UNIT_KAI       = $(wildcard tests/unit/*_test.kai)
 EXAMPLE_KAI    = $(wildcard examples/*/main.kai)
 
 TEST_NAMES     = $(patsubst tests/%.kai,%,$(TEST_KAI))
@@ -30,7 +32,7 @@ EXAMPLE_NAMES  = $(patsubst examples/%/main.kai,%,$(EXAMPLE_KAI))
 
 # Examples that compile but should not run-and-diff in tier1
 # (interactive servers, etc). Listed by directory basename.
-TIER1_SKIP_RUN = echo
+TIER1_SKIP_RUN = echo dotenv_load
 EXAMPLE_RUN_NAMES = $(filter-out $(TIER1_SKIP_RUN),$(EXAMPLE_NAMES))
 
 # Fixtures whose expected trace records the order in which two fibers
@@ -44,9 +46,9 @@ TEST_BINS      = $(addprefix $(BUILD)/,$(TEST_NAMES))
 EXAMPLE_BINS   = $(addprefix $(BUILD)/,$(EXAMPLE_NAMES))
 ALL_BINS       = $(TEST_BINS) $(EXAMPLE_BINS)
 
-AHU_SRC = $(wildcard ahu/*.kai)
+AHU_SRC = $(wildcard ahu/*.kai ahu/*/*.kai)
 
-.PHONY: tier0 tier1 tier1-fixtures clean
+.PHONY: tier0 tier1 tier1-fixtures tier1-unit clean
 
 # Tier 0 — fast pre-commit sanity. Compiles every fixture; green
 # means the ahu modules typecheck and every fixture's source is
@@ -56,8 +58,8 @@ tier0: $(ALL_BINS)
 
 # Tier 1 — gated by CI. Tier 0 plus running each fixture and
 # diffing stdout against its .out.expected sibling.
-tier1: tier0 tier1-fixtures
-	@echo "tier1: $(words $(ALL_BINS)) fixtures pass."
+tier1: tier0 tier1-fixtures tier1-unit
+	@echo "tier1: $(words $(ALL_BINS)) fixtures and $(words $(UNIT_KAI)) unit files pass."
 
 tier1-fixtures: $(ALL_BINS)
 	@set -e; \
@@ -82,6 +84,9 @@ tier1-fixtures: $(ALL_BINS)
 	for n in $(TIER1_SKIP_RUN); do \
 	  if [ -x "$(BUILD)/$$n" ]; then echo "tier1: example/$$n compile-only OK"; fi; \
 	done
+
+tier1-unit:
+	@set -e; for f in $(UNIT_KAI); do $(KAI) test "$$f"; done
 
 # Pattern rule for tests/ fixtures.
 $(BUILD)/%: tests/%.kai $(AHU_SRC) kai.toml | $(BUILD)

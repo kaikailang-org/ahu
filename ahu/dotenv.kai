@@ -1,6 +1,6 @@
 #[doc("Loads development configuration from dotenv files through explicit File and Env effects.")]
 
-import dotenv.parser
+import ahu.dotenv.parser
 
 import fs.file
 
@@ -55,7 +55,7 @@ pub fn parse(source: String) : Result[parser.Document, parser.ParseError] = pars
 pub fn parse_with(source: String, base: [Pair[String, String]]) : Result[parser.Document, parser.ParseError] = parser.parse_with(source, base)
 
 #[doc("Reads and parses one required dotenv file without mutating the environment.")]
-pub fn read(path: String) : Result[parser.Document, Error] / File = match read_file(path) {
+pub fn read(path: String) : Result[parser.Document, Error] / File = match file.read(path) {
   Err(message) -> Err(FileFailure(path, message))
   Ok(source) -> match parser.parse(source) {
     Err(error) -> Err(ParseFailure(path, error))
@@ -86,7 +86,7 @@ fn read_files(paths: [String], value: Options, environment: [Pair[String, String
       RequireFiles -> Err(FileFailure(path, "file does not exist"))
     }
   } else {
-    match read_file(path) {
+    match file.read(path) {
       Err(message) -> Err(FileFailure(path, message))
       Ok(source) -> {
         let base = [...entry_pairs(entries), ...environment]

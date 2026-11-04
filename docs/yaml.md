@@ -1,10 +1,10 @@
-# kai-yaml
+# ahu.yaml
 
-`kai-yaml` is a safe YAML 1.2 library for Kaikai. It converts human-readable
+`ahu.yaml` is a safe YAML 1.2 library for Kaikai. It converts human-readable
 text into an explicit value tree without constructing arbitrary objects or
 hiding I/O.
 
-Version 0.1 targets application configuration and localization catalogs such
+It targets application configuration and localization catalogs such
 as those consumed by Reo. It includes:
 
 - indentation-based mappings and sequences;
@@ -20,21 +20,11 @@ as those consumed by Reo. It includes:
 - loading through the `File` effect or an injected reader function;
 - deterministic serialization and total query helpers.
 
-## Dependency
-
-During local development:
-
-```toml
-[dependencies]
-yaml = { path = "../kai-yaml" }
-```
-
-The package is named `kai-yaml`; the dependency uses `yaml` as its idiomatic
-module alias:
+## Import
 
 ```kai
-import yaml
-import yaml.value
+import ahu.yaml
+import ahu.yaml.value
 ```
 
 ## Parsing
@@ -66,7 +56,7 @@ type YamlValue
 ```
 
 Mappings preserve document order. Keys are strings; complex YAML keys are not
-part of the safe 0.1 contract.
+part of the safe contract.
 
 ## Loading files
 
@@ -81,7 +71,7 @@ Tests, embedded assets, or virtual filesystems can inject the reader without
 simulating global state:
 
 ```kai
-import yaml.loader
+import ahu.yaml.loader
 
 let catalog = loader.load_with("es.yml", path =>
   if path == "es.yml" {
@@ -102,7 +92,7 @@ es:
       other: "Tienes %{count} mensajes"
 ```
 
-`kai-yaml` only interprets YAML. Reo is responsible for validating that the
+`ahu.yaml` only interprets YAML. Reo is responsible for validating that the
 root contains locales, that a leaf is a translation, and that `one`/`other`
 form a valid plural. This boundary keeps the parser general and leaves Reo in
 control of its domain.
@@ -114,7 +104,7 @@ keys, preserves mapping order, and ends with a newline. Its goal is a stable
 representation for snapshots and tools; it does not preserve comments or the
 original style.
 
-## Deliberate 0.1 limitations
+## Deliberate limitations
 
 Anchors, aliases, merge keys, tags, complex keys, multiple documents, and
 multiline flow scalars are rejected with a `ParseError`. They are never ignored
@@ -122,10 +112,9 @@ or interpreted partially. Comments, whitespace, and style are not preserved
 for round-trip editing.
 
 The architecture and rationale for this scope are documented in
-[`docs/design.md`](docs/design.md).
+[`yaml-design.md`](yaml-design.md).
 
-## Development
+## Tests
 
-```sh
-./scripts/check.sh
-```
+`make tier1` runs the tests in `tests/unit/yaml_parser_test.kai` and
+`tests/unit/yaml_value_encoder_test.kai`.

@@ -178,12 +178,25 @@ half. Spec: `ahu/log.kai` header.
   line additions to the `Field` sum once a real consumer needs
   them.
 
-### Config (state: **idea**)
+### Config (state: **shipped**, ahu/dotenv.kai + ahu/yaml.kai)
 
-`ahu/config.kai` — config loading from environment via
-`os.env.get`. Possibly small enough that stdlib direct calls
-suffice and no ahu module is justified. Decide once real
-consumers show what shape of config they want.
+Two configuration sources, adopted from Miguel Michelson's
+`kai-dotenv` and `kai-yaml` packages with their history:
+
+- `ahu.dotenv` parses `.env` files and loads them into the process
+  environment; existing variables win by default. Spec:
+  `docs/dotenv.md`.
+- `ahu.yaml` parses a safe YAML 1.2 subset into an explicit value
+  tree and rejects tags, anchors, aliases, and merge keys. Spec:
+  `docs/yaml.md`, `docs/yaml-design.md`.
+
+**Possible follow-ups**:
+
+- **YAML streams and complete multiline scalars** — see
+  `docs/yaml-design.md` §*Evolution*.
+- **A typed config layer** that merges environment, `.env`, and
+  YAML into one record. Decide once real consumers show what shape
+  of config they want.
 
 ### Reference applications (state: **partial**)
 
