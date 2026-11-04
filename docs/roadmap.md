@@ -120,7 +120,7 @@ Spec: `docs/design.md` §*Bootstrap*.
 ### Process registry (state: **idea**)
 
 Per-nursery `Registry` capability. Carrier dependencies have
-landed upstream: `Map[K, V]` is AVL-backed (O(log n)) and
+landed upstream: `Map[k, v]` is AVL-backed (O(log n)) and
 `m[k]` is sugar for `map_get`. Error shape:
 `type RegistryError = LookupError | RegisterError`, expressible
 via kaikai's union types.
@@ -133,7 +133,7 @@ as the default.
 
 ### Pool helper (state: **idea**)
 
-`pool(n, body) : Pid[Msg]` — N identical workers under a
+`pool(n, body) : Pid[msg]` — N identical workers under a
 nursery, round-robin dispatch. A thin layer over Layer 2 + 3
 primitives. Ships only if the pattern recurs in real
 applications. No commitment.
@@ -197,12 +197,6 @@ fibres; trace witnesses the producer parking when slots fill),
 `log_demo` (cell + `ahu.log` structured fields +
 `with_restart_backoff` composed end-to-end).
 
-`log_demo` currently reports `effect not handled in fiber: Log`: a
-cell runs in its own fiber and does not inherit a `Log` handler
-installed outside it, so logging directly from a cell step is
-unsupported. The fixture is left running so the limitation stays
-visible; see `CHANGELOG.md`.
-
 **Possible additions** (no commitment):
 
 - Websocket chat using cells per session + a broadcast
@@ -214,11 +208,10 @@ visible; see `CHANGELOG.md`.
 
 ### Distribution (state: **idea**, far-future)
 
-Cross-node Pids (`RemotePid[Msg]` as a distinct type),
+Cross-node Pids (`RemotePid[msg]` as a distinct type),
 distributed sources/sinks, heartbeat-based failure detector,
-multi-thread scheduler awareness. Depends on kaikai's
-`Serialize` protocol covering records and sum types, plus
-work-stealing across OS threads — neither is upstream yet.
+multi-thread scheduler awareness. Depends on a serialization that
+covers every message type a remote Pid carries.
 
 When this becomes concrete, a `docs/distributed-ahu.md`
 design doc opens. Not now.
