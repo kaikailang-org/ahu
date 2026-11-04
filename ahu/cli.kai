@@ -1,0 +1,705 @@
+#[doc("Declarative, self-documenting command-line applications for Kaikai.")]
+
+import os.args
+
+#[doc("The semantic version of the Ao package.")]
+pub const VERSION : String = "0.1.0"
+
+#[doc("The cardinality of one positional command argument.")]
+pub type ArgumentMode
+  = RequiredArgument
+  | OptionalArgument
+  | RepeatedArgument
+
+#[doc("The supported command-line option value types.")]
+pub type OptionKind
+  = TextOption
+  | IntegerOption
+  | BooleanOption
+  | TextListOption
+
+#[doc("A typed option value made available to a command handler.")]
+pub type OptionValue
+  = TextValue(String)
+  | IntegerValue(Int)
+  | BooleanValue(Bool)
+  | TextListValue([String])
+
+#[doc("A positional argument declaration.")]
+pub type ArgumentSpec = { priv name_value: String, priv description_value: String, priv mode_value: ArgumentMode, priv default_value: Option[String] }
+
+#[doc("A long command option with an optional one-character alias.")]
+pub type OptionSpec = { priv name_value: String, priv description_value: String, priv kind_value: OptionKind, priv short_value: Option[String], priv value_name_value: String, priv required_value: Bool, priv default_value: Option[OptionValue] }
+
+#[doc("The values bound to one declared positional argument.")]
+pub type ArgumentValue = { priv name_value: String, priv values_value: [String] }
+
+#[doc("One parsed option, including whether the user supplied it explicitly.")]
+pub type ParsedOption = { priv name_value: String, priv value_value: OptionValue, priv present_value: Bool }
+
+#[doc("The validated arguments and options passed to a command handler.")]
+pub type Context = { priv command_value: String, priv arguments_value: [ArgumentValue], priv options_value: [ParsedOption] }
+
+#[doc("A documented command and its effect-polymorphic handler.")]
+pub type Command[e] = { priv name_value: String, priv aliases_value: [String], priv description_value: String, priv arguments_value: [ArgumentSpec], priv options_value: [OptionSpec], priv action_value: (Context) -> Result[Unit, String] / e }
+
+#[doc("A self-documenting command-line application.")]
+pub type App[e] = { priv name_value: String, priv description_value: String, priv version_value: Option[String], priv default_command_value: Option[String], priv commands_value: [Command[e]] }
+
+#[doc("A successfully resolved CLI request, before output or handler execution.")]
+pub type Resolution[e]
+  = Invoke(Command[e], Context)
+  | ApplicationHelp
+  | CommandHelp(Command[e])
+  | ApplicationVersion(String)
+
+#[doc("A command-line definition or invocation error.")]
+pub type Error
+  = InvalidDefinition(String)
+  | UnknownCommand(String)
+  | UnknownOption(String)
+  | MissingOptionValue(String)
+  | InvalidInteger(String, String)
+  | InvalidBoolean(String, String)
+  | DuplicateOption(String)
+  | MissingRequiredOption(String)
+  | MissingArgument(String)
+  | TooManyArguments([String])
+  | VersionUnavailable
+
+type ParseState = { positionals: [String], options: [ParsedOption], options_enabled: Bool }
+
+type NameValue = { name: String, value: Option[String] }
+
+type OptionRead = { parsed: ParsedOption, rest: [String] }
+
+#[doc("Creates an empty command-line application specification.")]
+pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, commands_value: [] }
+
+#[doc("Attaches a version string displayed by `--version` and `-v`.")]
+pub fn versioned[e](value: App[e], version: String) : App[e] = App { ...value, version_value: Some(version) }
+
+#[doc("Registers a command, preserving declaration order in generated help.")]
+pub fn add_command[e](value: App[e], command: Command[e]) : App[e] = App { ...value, commands_value: [...value.commands_value, command] }
+
+#[doc("Selects the command invoked when no command name is supplied.")]
+pub fn default_command[e](value: App[e], name: String) : App[e] = App { ...value, default_command_value: Some(name) }
+
+#[doc("Creates a command with no arguments or options.")]
+pub fn command[e](name: String, description: String, action: (Context) -> Result[Unit, String] / e) : Command[e] = Command { name_value: name, aliases_value: [], description_value: description, arguments_value: [], options_value: [], action_value: action }
+
+#[doc("Adds an alternate name for a command.")]
+pub fn command_alias[e](value: Command[e], alias: String) : Command[e] = Command { ...value, aliases_value: [...value.aliases_value, alias] }
+
+#[doc("Appends a positional argument declaration to a command.")]
+pub fn with_argument[e](value: Command[e], argument: ArgumentSpec) : Command[e] = Command { ...value, arguments_value: [...value.arguments_value, argument] }
+
+#[doc("Appends an option declaration to a command.")]
+pub fn with_option[e](value: Command[e], option: OptionSpec) : Command[e] = Command { ...value, options_value: [...value.options_value, option] }
+
+#[doc("Declares one required positional argument.")]
+pub fn required_argument(name: String, description: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: RequiredArgument, default_value: None }
+
+#[doc("Declares one optional positional argument.")]
+pub fn optional_argument(name: String, description: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: OptionalArgument, default_value: None }
+
+#[doc("Declares one optional positional argument with a default value.")]
+pub fn argument_with_default(name: String, description: String, default: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: OptionalArgument, default_value: Some(default) }
+
+#[doc("Declares a final positional argument that captures all remaining values.")]
+pub fn repeated_argument(name: String, description: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: RepeatedArgument, default_value: None }
+
+fn base_option(name: String, description: String, kind: OptionKind, value_name: String, default: Option[OptionValue]) : OptionSpec = OptionSpec { name_value: name, description_value: description, kind_value: kind, short_value: None, value_name_value: value_name, required_value: false, default_value: default }
+
+#[doc("Declares a string-valued option.")]
+pub fn text_option(name: String, description: String) : OptionSpec = base_option(name, description, TextOption, "TEXT", None)
+
+#[doc("Declares a string-valued option with a default.")]
+pub fn text_option_with_default(name: String, description: String, default: String) : OptionSpec = base_option(name, description, TextOption, "TEXT", Some(TextValue(default)))
+
+#[doc("Declares an integer-valued option.")]
+pub fn integer_option(name: String, description: String) : OptionSpec = base_option(name, description, IntegerOption, "INTEGER", None)
+
+#[doc("Declares an integer-valued option with a default.")]
+pub fn integer_option_with_default(name: String, description: String, default: Int) : OptionSpec = base_option(name, description, IntegerOption, "INTEGER", Some(IntegerValue(default)))
+
+#[doc("Declares a boolean switch whose default is false.")]
+pub fn boolean_option(name: String, description: String) : OptionSpec = base_option(name, description, BooleanOption, "", Some(BooleanValue(false)))
+
+#[doc("Declares a repeatable string-valued option whose default is an empty list.")]
+pub fn text_list_option(name: String, description: String) : OptionSpec = base_option(name, description, TextListOption, "TEXT", Some(TextListValue([])))
+
+#[doc("Adds a one-character short alias to an option.")]
+pub fn short(value: OptionSpec, alias: String) : OptionSpec = OptionSpec { ...value, short_value: Some(alias) }
+
+#[doc("Marks an option as mandatory and removes any implicit default.")]
+pub fn required(value: OptionSpec) : OptionSpec = OptionSpec { ...value, required_value: true, default_value: None }
+
+#[doc("Overrides the placeholder shown for a non-boolean option value.")]
+pub fn value_name(value: OptionSpec, name: String) : OptionSpec = OptionSpec { ...value, value_name_value: name }
+
+#[doc("Returns the canonical command name for a handler context.")]
+pub fn command_name(value: Context) : String = value.command_value
+
+fn find_argument(values: [ArgumentValue], wanted: String) : Option[ArgumentValue] = list.find(values, value => value.name_value == wanted)
+
+#[doc("Returns the first value of a named positional argument.")]
+pub fn argument(value: Context, name: String) : Option[String] = match find_argument(value.arguments_value, name) {
+  None -> None
+  Some(found) -> list.nth(found.values_value, 0)
+}
+
+#[doc("Returns every value captured by a named positional argument.")]
+pub fn arguments(value: Context, name: String) : [String] = match find_argument(value.arguments_value, name) {
+  None -> []
+  Some(found) -> found.values_value
+}
+
+fn find_option(values: [ParsedOption], wanted: String) : Option[ParsedOption] = list.find(values, value => value.name_value == wanted)
+
+#[doc("Returns whether an option was supplied explicitly rather than defaulted.")]
+pub fn option_present(value: Context, name: String) : Bool = match find_option(value.options_value, name) {
+  None -> false
+  Some(found) -> found.present_value
+}
+
+#[doc("Returns a parsed string option, or `None` when absent or differently typed.")]
+pub fn text(value: Context, name: String) : Option[String] = match find_option(value.options_value, name) {
+  Some(found) -> match found.value_value {
+    TextValue(text) -> Some(text)
+    _ -> None
+  }
+  _ -> None
+}
+
+#[doc("Returns a parsed integer option, or `None` when absent or differently typed.")]
+pub fn integer(value: Context, name: String) : Option[Int] = match find_option(value.options_value, name) {
+  Some(found) -> match found.value_value {
+    IntegerValue(integer) -> Some(integer)
+    _ -> None
+  }
+  _ -> None
+}
+
+#[doc("Returns a parsed boolean option, defaulting to false when absent or differently typed.")]
+pub fn boolean(value: Context, name: String) : Bool = match find_option(value.options_value, name) {
+  Some(found) -> match found.value_value {
+    BooleanValue(boolean) -> boolean
+    _ -> false
+  }
+  _ -> false
+}
+
+#[doc("Returns a parsed repeatable string option, defaulting to an empty list.")]
+pub fn texts(value: Context, name: String) : [String] = match find_option(value.options_value, name) {
+  Some(found) -> match found.value_value {
+    TextListValue(texts) -> texts
+    _ -> []
+  }
+  _ -> []
+}
+
+fn valid_name_chars(chars: [Char], allow_colon: Bool) : Bool = match chars {
+  [] -> true
+  [char, ...rest] -> if ((char.is_alnum() or (char == '-')) or (char == '_')) or (allow_colon and (char == ':')) {
+    valid_name_chars(rest, allow_colon)
+  } else {
+    false
+  }
+}
+
+fn valid_name(value: String, allow_colon: Bool) : Bool = (not string.is_blank(value)) and valid_name_chars(value.chars(), allow_colon)
+
+fn duplicate(values: [String], seen: [String]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> if seen.contains(value) {
+    Some(value)
+  } else {
+    duplicate(rest, [value, ...seen])
+  }
+}
+
+fn option_names(values: [OptionSpec]) : [String] = values | (.name_value)
+
+fn option_shorts(values: [OptionSpec]) : [String] = match values {
+  [] -> []
+  [value, ...rest] -> match value.short_value {
+    None -> option_shorts(rest)
+    Some(alias) -> [alias, ...option_shorts(rest)]
+  }
+}
+
+fn validate_options(values: [OptionSpec]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> if not valid_name(value.name_value, false) {
+    Some("invalid option name `#{value.name_value}`")
+  } else if value.name_value == "help" {
+    Some("option name `help` is reserved")
+  } else if match value.short_value {
+    None -> false
+    Some(alias) -> (string.char_count(alias) != 1) or (not valid_name(alias, false))
+  } {
+    Some("short option aliases must contain one letter or digit")
+  } else if value.short_value == Some("h") {
+    Some("short option alias `h` is reserved")
+  } else if (value.kind_value == BooleanOption) and (value.value_name_value != "") {
+    Some("boolean option `--#{value.name_value}` cannot have a value placeholder")
+  } else {
+    validate_options(rest)
+  }
+}
+
+fn validate_argument_order(values: [ArgumentSpec], optional_seen: Bool, repeated_seen: Bool) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> if repeated_seen {
+    Some("repeated argument `#{value.name_value}` must be last")
+  } else {
+    match value.mode_value {
+      RequiredArgument -> if optional_seen {
+        Some("required argument `#{value.name_value}` cannot follow an optional argument")
+      } else {
+        validate_argument_order(rest, false, false)
+      }
+      OptionalArgument -> validate_argument_order(rest, true, false)
+      RepeatedArgument -> validate_argument_order(rest, optional_seen, true)
+    }
+  }
+}
+
+fn validate_arguments(values: [ArgumentSpec]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> if not valid_name(value.name_value, false) {
+    Some("invalid argument name `#{value.name_value}`")
+  } else {
+    validate_arguments(rest)
+  }
+}
+
+fn command_identifiers(value: Command[e]) : [String] = [value.name_value, ...value.aliases_value]
+
+fn validate_command(value: Command[e]) : Option[String] = if not valid_name(value.name_value, true) {
+  Some("invalid command name `#{value.name_value}`")
+} else if value.name_value == "help" {
+  Some("command name `help` is reserved")
+} else {
+  match duplicate(command_identifiers(value), []) {
+    Some(name) -> Some("duplicate command name or alias `#{name}`")
+    None -> match validate_arguments(value.arguments_value) {
+      Some(message) -> Some("command `#{value.name_value}`: #{message}")
+      None -> match duplicate(value.arguments_value | (.name_value), []) {
+        Some(name) -> Some("command `#{value.name_value}`: duplicate argument `#{name}`")
+        None -> match validate_argument_order(value.arguments_value, false, false) {
+          Some(message) -> Some("command `#{value.name_value}`: #{message}")
+          None -> match validate_options(value.options_value) {
+            Some(message) -> Some("command `#{value.name_value}`: #{message}")
+            None -> match duplicate(option_names(value.options_value), []) {
+              Some(name) -> Some("command `#{value.name_value}`: duplicate option `--#{name}`")
+              None -> duplicate(option_shorts(value.options_value), []) |> option.map(name => "command `#{value.name_value}`: duplicate short option `-#{name}`")
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn all_command_identifiers(values: [Command[e]]) : [String] = match values {
+  [] -> []
+  [value, ...rest] -> [...command_identifiers(value), ...all_command_identifiers(rest)]
+}
+
+fn validate_commands(values: [Command[e]]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> match validate_command(value) {
+    Some(message) -> Some(message)
+    None -> validate_commands(rest)
+  }
+}
+
+fn find_command(values: [Command[e]], wanted: String) : Option[Command[e]] = list.find(values, value => (value.name_value == wanted) or value.aliases_value.contains(wanted))
+
+fn validate_app(value: App[e]) : Option[String] = if not valid_name(value.name_value, false) {
+  Some("invalid application name `#{value.name_value}`")
+} else {
+  match validate_commands(value.commands_value) {
+    Some(message) -> Some(message)
+    None -> match duplicate(all_command_identifiers(value.commands_value), []) {
+      Some(name) -> Some("duplicate command name or alias `#{name}`")
+      None -> value.default_command_value |> option.and_then(name => match find_command(value.commands_value, name) {
+        None -> Some("default command `#{name}` is not registered")
+        Some(_) -> None
+      })
+    }
+  }
+}
+
+fn split_assignment(value: String) : NameValue = match string.index_of(value, "=") {
+  None -> NameValue { name: value, value: None }
+  Some(index) -> NameValue { name: string.slice(value, 0, index), value: Some(string.slice(value, index + 1, (string.length(value) - index) - 1)) }
+}
+
+fn option_by_name(values: [OptionSpec], wanted: String) : Option[OptionSpec] = list.find(values, value => value.name_value == wanted)
+
+fn option_by_short(values: [OptionSpec], wanted: String) : Option[OptionSpec] = list.find(values, value => value.short_value == Some(wanted))
+
+fn read_boolean(name: String, value: String) : Result[Bool, Error] = match value {
+  "true" -> Ok(true)
+  "1" -> Ok(true)
+  "false" -> Ok(false)
+  "0" -> Ok(false)
+  _ -> Err(InvalidBoolean(name, value))
+}
+
+fn supplied_value(name: String, inline: Option[String], rest: [String]) : Result[(String, [String]), Error] = match inline {
+  Some(value) -> Ok((value, rest))
+  None -> match rest {
+    [] -> Err(MissingOptionValue(name))
+    [value, ...remaining] -> Ok((value, remaining))
+  }
+}
+
+fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], rest: [String], negated: Bool) : Result[OptionRead, Error] = match spec.kind_value {
+  BooleanOption -> if negated {
+    match inline {
+      Some(value) -> Err(InvalidBoolean(display_name, value))
+      None -> Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: BooleanValue(false), present_value: true }, rest: rest })
+    }
+  } else {
+    match inline {
+      None -> Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: BooleanValue(true), present_value: true }, rest: rest })
+      Some(value) -> match read_boolean(display_name, value) {
+        Err(error) -> Err(error)
+        Ok(found) -> Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: BooleanValue(found), present_value: true }, rest: rest })
+      }
+    }
+  }
+  TextOption -> {
+    let supplied = supplied_value(display_name, inline, rest)!
+    Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextValue(supplied.fst), present_value: true }, rest: supplied.snd })
+  }
+  IntegerOption -> {
+    let supplied = supplied_value(display_name, inline, rest)!
+    match string.to_int(supplied.fst) {
+      None -> Err(InvalidInteger(display_name, supplied.fst))
+      Some(found) -> Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: IntegerValue(found), present_value: true }, rest: supplied.snd })
+    }
+  }
+  TextListOption -> {
+    let supplied = supplied_value(display_name, inline, rest)!
+    Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextListValue([supplied.fst]), present_value: true }, rest: supplied.snd })
+  }
+}
+
+fn store_option(values: [ParsedOption], incoming: ParsedOption) : Result[[ParsedOption], Error] = match values {
+  [] -> Ok([incoming])
+  [value, ...rest] -> if value.name_value == incoming.name_value {
+    match (value.value_value, incoming.value_value) {
+      (TextListValue(before), TextListValue(after)) -> Ok([ParsedOption { name_value: value.name_value, value_value: TextListValue(before ++ after), present_value: true }, ...rest])
+      _ -> Err(DuplicateOption(incoming.name_value))
+    }
+  } else {
+    let updated = store_option(rest, incoming)!
+    Ok([value, ...updated])
+  }
+}
+
+fn parse_long(options: [OptionSpec], token: String, rest: [String], state: ParseState) : Result[ParseState, Error] {
+  let pair = split_assignment(string.slice(token, 2, string.length(token) - 2))
+  let negated_name = if string.starts_with(pair.name, "no-") {
+    Some(string.slice(pair.name, 3, string.length(pair.name) - 3))
+  } else {
+    None
+  }
+  let selected = match option_by_name(options, pair.name) {
+    Some(spec) -> Some((spec, false))
+    None -> option.and_then(negated_name, (name: String) => option.and_then(option_by_name(options, name), (spec: OptionSpec) => if spec.kind_value == BooleanOption {
+      Some((spec, true))
+    } else {
+      None
+    }))
+  }
+  match selected {
+    None -> Err(UnknownOption(token))
+    Some(selection) -> {
+      let read = read_option(selection.fst, "--#{selection.fst.name_value}", pair.value, rest, selection.snd)!
+      let stored = store_option(state.options, read.parsed)!
+      parse_tokens(options, read.rest, ParseState { ...state, options: stored })
+    }
+  }
+}
+
+fn parse_short(options: [OptionSpec], token: String, rest: [String], state: ParseState) : Result[ParseState, Error] {
+  let pair = split_assignment(string.slice(token, 1, string.length(token) - 1))
+  match option_by_short(options, pair.name) {
+    None -> Err(UnknownOption(token))
+    Some(spec) -> {
+      let read = read_option(spec, "-#{pair.name}", pair.value, rest, false)!
+      let stored = store_option(state.options, read.parsed)!
+      parse_tokens(options, read.rest, ParseState { ...state, options: stored })
+    }
+  }
+}
+
+fn parse_tokens(options: [OptionSpec], tokens: [String], state: ParseState) : Result[ParseState, Error] = match tokens {
+  [] -> Ok(state)
+  [token, ...rest] -> if not state.options_enabled {
+    parse_tokens(options, rest, ParseState { ...state, positionals: [token, ...state.positionals] })
+  } else if token == "--" {
+    parse_tokens(options, rest, ParseState { ...state, options_enabled: false })
+  } else if string.starts_with(token, "--") and (string.length(token) > 2) {
+    parse_long(options, token, rest, state)
+  } else if string.starts_with(token, "-") and (string.length(token) > 1) {
+    parse_short(options, token, rest, state)
+  } else {
+    parse_tokens(options, rest, ParseState { ...state, positionals: [token, ...state.positionals] })
+  }
+}
+
+fn parsed_option(values: [ParsedOption], wanted: String) : Option[ParsedOption] = list.find(values, value => value.name_value == wanted)
+
+fn finalize_options(specs: [OptionSpec], parsed: [ParsedOption], acc: [ParsedOption]) : Result[[ParsedOption], Error] = match specs {
+  [] -> Ok(list.reverse(acc))
+  [spec, ...rest] -> match parsed_option(parsed, spec.name_value) {
+    Some(value) -> finalize_options(rest, parsed, [value, ...acc])
+    None -> if spec.required_value {
+      Err(MissingRequiredOption(spec.name_value))
+    } else {
+      match spec.default_value {
+        None -> finalize_options(rest, parsed, acc)
+        Some(value) -> finalize_options(rest, parsed, [ParsedOption { name_value: spec.name_value, value_value: value, present_value: false }, ...acc])
+      }
+    }
+  }
+}
+
+fn bind_arguments(specs: [ArgumentSpec], values: [String], acc: [ArgumentValue]) : Result[[ArgumentValue], Error] = match specs {
+  [] -> if list.is_empty(values) {
+    Ok(list.reverse(acc))
+  } else {
+    Err(TooManyArguments(values))
+  }
+  [spec, ...rest] -> match spec.mode_value {
+    RequiredArgument -> match values {
+      [] -> Err(MissingArgument(spec.name_value))
+      [value, ...remaining] -> bind_arguments(rest, remaining, [ArgumentValue { name_value: spec.name_value, values_value: [value] }, ...acc])
+    }
+    OptionalArgument -> match values {
+      [value, ...remaining] -> bind_arguments(rest, remaining, [ArgumentValue { name_value: spec.name_value, values_value: [value] }, ...acc])
+      [] -> match spec.default_value {
+        None -> bind_arguments(rest, [], acc)
+        Some(value) -> bind_arguments(rest, [], [ArgumentValue { name_value: spec.name_value, values_value: [value] }, ...acc])
+      }
+    }
+    RepeatedArgument -> Ok(list.reverse([ArgumentValue { name_value: spec.name_value, values_value: values }, ...acc]))
+  }
+}
+
+fn resolve_command(value: Command[e], tokens: [String]) : Result[Resolution[e], Error] = if tokens.contains("--help") or tokens.contains("-h") {
+  Ok(CommandHelp(value))
+} else {
+  let parsed = parse_tokens(value.options_value, tokens, ParseState { positionals: [], options: [], options_enabled: true })!
+  let arguments = bind_arguments(value.arguments_value, list.reverse(parsed.positionals), [])!
+  let options = finalize_options(value.options_value, parsed.options, [])!
+  Ok(Invoke(value, Context { command_value: value.name_value, arguments_value: arguments, options_value: options }))
+}
+
+fn resolve_default(value: App[e], tokens: [String]) : Result[Resolution[e], Error] = match value.default_command_value {
+  None -> match tokens {
+    [] -> Ok(ApplicationHelp)
+    [name, ..._] -> Err(UnknownCommand(name))
+  }
+  Some(name) -> match find_command(value.commands_value, name) {
+    None -> Err(InvalidDefinition("default command `#{name}` is not registered"))
+    Some(command) -> resolve_command(command, tokens)
+  }
+}
+
+fn resolve_help(value: App[e], tokens: [String]) : Result[Resolution[e], Error] = match tokens {
+  [] -> Ok(ApplicationHelp)
+  [name] -> match find_command(value.commands_value, name) {
+    None -> Err(UnknownCommand(name))
+    Some(command) -> Ok(CommandHelp(command))
+  }
+  _ -> Err(TooManyArguments(tokens))
+}
+
+#[doc("Purely validates and resolves an argument vector into help, version, or invocation data.")]
+pub fn resolve[e](value: App[e], argv: [String]) : Result[Resolution[e], Error] = match validate_app(value) {
+  Some(message) -> Err(InvalidDefinition(message))
+  None -> match argv {
+    [] -> resolve_default(value, [])
+    ["help", ...rest] -> resolve_help(value, rest)
+    ["--help", ..._] -> Ok(ApplicationHelp)
+    ["-h", ..._] -> Ok(ApplicationHelp)
+    ["--version", ..._] -> match value.version_value {
+      None -> Err(VersionUnavailable)
+      Some(version) -> Ok(ApplicationVersion(version))
+    }
+    ["-v", ..._] -> match value.version_value {
+      None -> Err(VersionUnavailable)
+      Some(version) -> Ok(ApplicationVersion(version))
+    }
+    [name, ...rest] -> match find_command(value.commands_value, name) {
+      Some(command) -> resolve_command(command, rest)
+      None -> match value.default_command_value {
+        Some(_) -> resolve_default(value, argv)
+        None -> if string.starts_with(name, "-") {
+          resolve_default(value, argv)
+        } else {
+          Err(UnknownCommand(name))
+        }
+      }
+    }
+  }
+}
+
+fn argument_usage(value: ArgumentSpec) : String = match value.mode_value {
+  RequiredArgument -> " <#{value.name_value}>"
+  OptionalArgument -> " [#{value.name_value}]"
+  RepeatedArgument -> " [#{value.name_value}...]"
+}
+
+fn arguments_usage(values: [ArgumentSpec]) : String = (values | argument_usage) |> string.join("")
+
+fn command_usage(value: Command[e]) : String = "#{value.name_value}#{arguments_usage(value.arguments_value)}"
+
+fn alias_note(aliases: [String]) : String = if list.is_empty(aliases) {
+  ""
+} else {
+  " Aliases: #{string.join(aliases, ", ")}."
+}
+
+fn command_rows(values: [Command[e]]) : [Pair[String, String]] = values | (value => (command_usage(value), "#{value.description_value}#{alias_note(value.aliases_value)}"))
+
+fn argument_rows(values: [ArgumentSpec]) : [Pair[String, String]] = values | (value => (value.name_value, value.description_value))
+
+fn option_default(value: Option[OptionValue]) : String = match value {
+  None -> ""
+  Some(TextValue(found)) -> " Default: #{found}."
+  Some(IntegerValue(found)) -> " Default: #{found}."
+  Some(BooleanValue(true)) -> " Default: true."
+  Some(BooleanValue(false)) -> ""
+  Some(TextListValue(found)) -> if list.is_empty(found) {
+    ""
+  } else {
+    " Default: #{string.join(found, ", ")}."
+  }
+}
+
+fn option_label(value: OptionSpec) : String {
+  let long = if value.kind_value == BooleanOption {
+    "--#{value.name_value}"
+  } else {
+    "--#{value.name_value} <#{value.value_name_value}>"
+  }
+  match value.short_value {
+    None -> "    #{long}"
+    Some(short) -> "-#{short}, #{long}"
+  }
+}
+
+fn option_description(value: OptionSpec) : String {
+  let required = if value.required_value {
+    " Required."
+  } else {
+    ""
+  }
+  "#{value.description_value}#{required}#{option_default(value.default_value)}"
+}
+
+fn option_rows(values: [OptionSpec]) : [Pair[String, String]] = values | (value => (option_label(value), option_description(value)))
+
+fn max_width(rows: [Pair[String, String]], current: Int) : Int = match rows {
+  [] -> current
+  [row, ...rest] -> {
+    let width = string.char_count(row.fst)
+    max_width(rest, if width > current {
+      width
+    } else {
+      current
+    })
+  }
+}
+
+fn render_rows(rows: [Pair[String, String]], width: Int) : String = match rows {
+  [] -> ""
+  [row, ...rest] -> "  #{string.pad_right(row.fst, width, ' ')}  #{row.snd}\n#{render_rows(rest, width)}"
+}
+
+fn render_section(title: String, rows: [Pair[String, String]]) : String = if list.is_empty(rows) {
+  ""
+} else {
+  "#{title}:\n#{render_rows(rows, max_width(rows, 0))}\n"
+}
+
+fn builtin_option_rows(value: App[e]) : [Pair[String, String]] = match value.version_value {
+  None -> [("-h, --help", "Show this help message.")]
+  Some(_) -> [("-h, --help", "Show this help message."), ("-v, --version", "Show the application version.")]
+}
+
+fn default_note(value: App[e]) : String = match value.default_command_value {
+  None -> ""
+  Some(name) -> "\nDefault command: #{name}\n"
+}
+
+#[doc("Renders deterministic application help from an Ao specification.")]
+pub fn render_help[e](value: App[e]) : String = "#{value.name_value} — #{value.description_value}\n\nUsage:\n  #{value.name_value} <command> [options]\n\n#{render_section("Commands", [...command_rows(value.commands_value), ("help [COMMAND]", "Show help for the application or one command.")])}#{render_section("Options", builtin_option_rows(value))}#{default_note(value)}"
+
+#[doc("Renders deterministic help for one registered command.")]
+pub fn render_command_help[e](application: App[e], value: Command[e]) : String {
+  let options = [...option_rows(value.options_value), ("-h, --help", "Show help for this command.")]
+  "#{application.name_value} #{value.name_value} — #{value.description_value}\n\nUsage:\n  #{application.name_value} #{command_usage(value)}#{if list.is_empty(value.options_value) { "" } else { " [options]" }}\n\n#{render_section("Arguments", argument_rows(value.arguments_value))}#{render_section("Options", options)}"
+}
+
+#[doc("Formats a command-line error for display to a person.")]
+pub fn error_message(value: Error) : String = match value {
+  InvalidDefinition(message) -> "invalid Ao application: #{message}"
+  UnknownCommand(name) -> "unknown command `#{name}`"
+  UnknownOption(name) -> "unknown option `#{name}`"
+  MissingOptionValue(name) -> "option `#{name}` requires a value"
+  InvalidInteger(name, found) -> "option `#{name}` expects an integer, got `#{found}`"
+  InvalidBoolean(name, found) -> "option `#{name}` expects true, false, 1, or 0; got `#{found}`"
+  DuplicateOption(name) -> "option `--#{name}` may only be supplied once"
+  MissingRequiredOption(name) -> "required option `--#{name}` is missing"
+  MissingArgument(name) -> "required argument `#{name}` is missing"
+  TooManyArguments(values) -> "unexpected arguments: #{string.join(values, " ")}"
+  VersionUnavailable -> "this application does not declare a version"
+}
+
+#[doc("Executes an invocation resolution without printing help or errors.")]
+pub fn execute[e](value: Resolution[e]) : Result[Unit, String] / e = match value {
+  Invoke(command, context) -> command.action_value(context)
+  ApplicationHelp -> Err("cannot execute an application-help resolution")
+  CommandHelp(_) -> Err("cannot execute a command-help resolution")
+  ApplicationVersion(_) -> Err("cannot execute a version resolution")
+}
+
+#[doc("Runs an application against an explicit argument vector and returns a process exit code.")]
+pub fn run_argv[e](value: App[e], argv: [String]) : Int / Stdout + Stderr + e = match resolve(value, argv) {
+  Err(error) -> {
+    Stderr.eprint("Error: #{error_message(error)}\nRun `#{value.name_value} help` for usage.\n")
+    1
+  }
+  Ok(ApplicationHelp) -> {
+    Stdout.print(render_help(value))
+    0
+  }
+  Ok(CommandHelp(command)) -> {
+    Stdout.print(render_command_help(value, command))
+    0
+  }
+  Ok(ApplicationVersion(version)) -> {
+    Stdout.print("#{value.name_value} #{version}\n")
+    0
+  }
+  Ok(Invoke(command, context)) -> match command.action_value(context) {
+    Ok(_) -> 0
+    Err(message) -> {
+      Stderr.eprint("Error: #{message}\n")
+      1
+    }
+  }
+}
+
+#[doc("Runs an application with the current process arguments and returns its exit code.")]
+pub fn run[e](value: App[e]) : Int / Env + Stdout + Stderr + e = run_argv(value, args.argv())

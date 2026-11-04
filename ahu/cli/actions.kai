@@ -1,0 +1,308 @@
+#[doc("Interactive, template, and filesystem actions for Ao command handlers.")]
+
+import fs.dir
+
+import fs.file
+
+import path
+
+#[doc("A named string substituted into an Ao template placeholder.")]
+pub type Binding = { priv name_value: String, priv value_value: String }
+
+#[doc("A recoverable template rendering failure.")]
+#[derive(Eq)]
+pub type TemplateError
+  = EmptyPlaceholder(Int)
+  | UnclosedPlaceholder(Int)
+  | MissingBinding(String)
+  | DuplicateBinding(String)
+
+#[doc("The policy used when a file action targets an existing, changed file.")]
+#[derive(Eq)]
+pub type ConflictPolicy
+  = OverwriteExisting
+  | SkipExisting
+  | FailIfExists
+
+#[doc("The observable result of a filesystem action.")]
+#[derive(Eq)]
+pub type Change
+  = Created(String)
+  | Updated(String)
+  | Unchanged(String)
+  | Skipped(String)
+  | Removed(String)
+  | Missing(String)
+  | DirectoryCreated(String)
+  | DirectoryExists(String)
+
+#[doc("A recoverable filesystem or template action failure.")]
+#[derive(Eq)]
+pub type ActionError
+  = FileFailure(String, String)
+  | ExistingFile(String)
+  | MissingMarker(String, String)
+  | MalformedManagedBlock(String, String)
+  | TemplateFailure(TemplateError)
+
+#[doc("Creates one template binding.")]
+pub fn binding(name: String, value: String) : Binding = Binding { name_value: name, value_value: value }
+
+#[doc("Writes one informational line to standard output.")]
+pub fn say(message: String) : Unit / Stdout = Stdout.print("#{message}\n")
+
+#[doc("Writes a right-aligned status and message in a generator-friendly form.")]
+pub fn say_status(status: String, message: String) : Unit / Stdout = Stdout.print("#{string.pad_left(status, 12, ' ')}  #{message}\n")
+
+#[doc("Asks one question and returns the next input line, or `None` at EOF.")]
+pub fn ask(question: String) : Option[String] / Stdout + Stdin {
+  Stdout.print("#{question} ")
+  Stdin.read_line()
+}
+
+#[doc("Asks one question and substitutes a default for EOF or a blank answer.")]
+pub fn ask_with_default(question: String, default: String) : String / Stdout + Stdin = match ask("#{question} [#{default}]") {
+  None -> default
+  Some(answer) -> {
+    let trimmed = string.trim(answer)
+    if string.is_empty(trimmed) {
+      default
+    } else {
+      trimmed
+    }
+  }
+}
+
+fn affirmative(value: String) : Option[Bool] = match string.to_lower(string.trim(value)) {
+  "y" -> Some(true)
+  "yes" -> Some(true)
+  "s" -> Some(true)
+  "si" -> Some(true)
+  "sí" -> Some(true)
+  "n" -> Some(false)
+  "no" -> Some(false)
+  _ -> None
+}
+
+#[doc("Asks a yes/no question and returns the supplied default for EOF or an unrecognized answer.")]
+pub fn confirm(question: String, default: Bool) : Bool / Stdout + Stdin {
+  let hint = if default {
+    "Y/n"
+  } else {
+    "y/N"
+  }
+  match ask("#{question} [#{hint}]") {
+    None -> default
+    Some(answer) -> option.unwrap_or(affirmative(answer), default)
+  }
+}
+
+#[doc("Returns true only when a yes/no prompt is answered affirmatively.")]
+pub fn yes(question: String) : Bool / Stdout + Stdin = confirm(question, false)
+
+#[doc("Returns true only when a yes/no prompt is answered negatively.")]
+pub fn no(question: String) : Bool / Stdout + Stdin = not confirm(question, true)
+
+fn binding_names(values: [Binding]) : [String] = values | (.name_value)
+
+fn duplicate(values: [String], seen: [String]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> if seen.contains(value) {
+    Some(value)
+  } else {
+    duplicate(rest, [value, ...seen])
+  }
+}
+
+fn lookup_binding(values: [Binding], wanted: String) : Option[String] = list.find(values, value => value.name_value == wanted) |> option.map(.value_value)
+
+fn render_from(source: String, bindings: [Binding], offset: Int, acc: String) : Result[String, TemplateError] = match string.index_of(source, "{{") {
+  None -> Ok("#{acc}#{source}")
+  Some(open) -> {
+    let after_open = string.slice(source, open + 2, (string.length(source) - open) - 2)
+    match string.index_of(after_open, "}}") {
+      None -> Err(UnclosedPlaceholder(offset + open))
+      Some(close) -> {
+        let name = string.trim(string.slice(after_open, 0, close))
+        if string.is_empty(name) {
+          Err(EmptyPlaceholder(offset + open))
+        } else {
+          match lookup_binding(bindings, name) {
+            None -> Err(MissingBinding(name))
+            Some(value) -> {
+              let prefix = string.slice(source, 0, open)
+              let consumed = (open + close) + 4
+              let remaining = string.slice(source, consumed, string.length(source) - consumed)
+              render_from(remaining, bindings, offset + consumed, "#{acc}#{prefix}#{value}")
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+#[doc("Renders `{{name}}` placeholders with explicit string bindings.")]
+pub fn render_template(source: String, bindings: [Binding]) : Result[String, TemplateError] = match duplicate(binding_names(bindings), []) {
+  Some(name) -> Err(DuplicateBinding(name))
+  None -> render_from(source, bindings, 0, "")
+}
+
+#[doc("Formats a template failure for display to a person.")]
+pub fn template_error_message(value: TemplateError) : String = match value {
+  EmptyPlaceholder(offset) -> "empty template placeholder at byte #{offset}"
+  UnclosedPlaceholder(offset) -> "unclosed template placeholder at byte #{offset}"
+  MissingBinding(name) -> "missing template binding `#{name}`"
+  DuplicateBinding(name) -> "duplicate template binding `#{name}`"
+}
+
+#[doc("Formats a filesystem or template action failure for display to a person.")]
+pub fn action_error_message(value: ActionError) : String = match value {
+  FileFailure(path, message) -> "file action failed for `#{path}`: #{message}"
+  ExistingFile(path) -> "file `#{path}` already exists with different contents"
+  MissingMarker(path, marker) -> "marker `#{marker}` was not found in `#{path}`"
+  MalformedManagedBlock(path, identity) -> "managed block `#{identity}` is malformed in `#{path}`"
+  TemplateFailure(error) -> template_error_message(error)
+}
+
+fn write_new(path: String, contents: String, result: Change) : Result[Change, ActionError] / File = match write_file(path, contents) {
+  Ok(_) -> Ok(result)
+  Err(message) -> Err(FileFailure(path, message))
+}
+
+#[doc("Creates or updates a text file according to an explicit conflict policy.")]
+pub fn create_file(path: String, contents: String, policy: ConflictPolicy) : Result[Change, ActionError] / File = if not file.exists(path) {
+  write_new(path, contents, Created(path))
+} else {
+  match read_file(path) {
+    Err(message) -> Err(FileFailure(path, message))
+    Ok(existing) -> if existing == contents {
+      Ok(Unchanged(path))
+    } else {
+      match policy {
+        OverwriteExisting -> write_new(path, contents, Updated(path))
+        SkipExisting -> Ok(Skipped(path))
+        FailIfExists -> Err(ExistingFile(path))
+      }
+    }
+  }
+}
+
+#[doc("Copies one text file to another path using an explicit conflict policy.")]
+pub fn copy_file(source: String, destination: String, policy: ConflictPolicy) : Result[Change, ActionError] / File = match read_file(source) {
+  Err(message) -> Err(FileFailure(source, message))
+  Ok(contents) -> create_file(destination, contents, policy)
+}
+
+#[doc("Renders a template string and writes the result using an explicit conflict policy.")]
+pub fn create_from_template(source: String, destination: String, bindings: [Binding], policy: ConflictPolicy) : Result[Change, ActionError] / File = match render_template(source, bindings) {
+  Err(error) -> Err(TemplateFailure(error))
+  Ok(contents) -> create_file(destination, contents, policy)
+}
+
+#[doc("Reads, renders, and writes a template file using explicit bindings and conflict policy.")]
+pub fn template_file(source: String, destination: String, bindings: [Binding], policy: ConflictPolicy) : Result[Change, ActionError] / File = match read_file(source) {
+  Err(message) -> Err(FileFailure(source, message))
+  Ok(template) -> create_from_template(template, destination, bindings, policy)
+}
+
+#[doc("Appends text to a file, creating it when absent.")]
+pub fn append_file(path: String, contents: String) : Result[Change, ActionError] / File = if file.exists(path) {
+  match read_file(path) {
+    Err(message) -> Err(FileFailure(path, message))
+    Ok(existing) -> write_new(path, "#{existing}#{contents}", Updated(path))
+  }
+} else {
+  write_new(path, contents, Created(path))
+}
+
+#[doc("Inserts text immediately after the first marker occurrence in a text file.")]
+pub fn inject_after(path: String, marker: String, contents: String) : Result[Change, ActionError] / File = match read_file(path) {
+  Err(message) -> Err(FileFailure(path, message))
+  Ok(existing) -> match string.index_of(existing, marker) {
+    None -> Err(MissingMarker(path, marker))
+    Some(index) -> {
+      let split = index + string.length(marker)
+      let before = string.slice(existing, 0, split)
+      let after = string.slice(existing, split, string.length(existing) - split)
+      create_file(path, "#{before}#{contents}#{after}", OverwriteExisting)
+    }
+  }
+}
+
+fn managed_marker(identity: String, suffix: String) : String = "# manutara:#{identity}:#{suffix}"
+
+fn managed_contents(identity: String, contents: String) : String {
+  let body = if string.ends_with(contents, "\n") {
+    contents
+  } else {
+    "#{contents}\n"
+  }
+  "#{managed_marker(identity, "start")}\n#{body}#{managed_marker(identity, "end")}"
+}
+
+fn line_end_after(value: String, marker_end: Int) : Int {
+  let tail = string.slice(value, marker_end, string.length(value) - marker_end)
+  match string.index_of(tail, "\n") {
+    None -> string.length(value)
+    Some(relative) -> (marker_end + relative) + 1
+  }
+}
+
+#[doc("Creates or replaces one named managed block after an anchor without duplicating it on reruns.")]
+pub fn upsert_managed_block(path: String, anchor: String, identity: String, contents: String) : Result[Change, ActionError] / File = match read_file(path) {
+  Err(message) -> Err(FileFailure(path, message))
+  Ok(existing) -> {
+    let start_marker = managed_marker(identity, "start")
+    let end_marker = managed_marker(identity, "end")
+    match (string.index_of(existing, start_marker), string.index_of(existing, end_marker)) {
+      (None, None) -> match string.index_of(existing, anchor) {
+        None -> Err(MissingMarker(path, anchor))
+        Some(anchor_index) -> {
+          let split = line_end_after(existing, anchor_index + string.length(anchor))
+          let before = string.slice(existing, 0, split)
+          let after = string.slice(existing, split, string.length(existing) - split)
+          let separator = if string.ends_with(before, "\n") {
+            ""
+          } else {
+            "\n"
+          }
+          create_file(path, "#{before}#{separator}#{managed_contents(identity, contents)}\n#{after}", OverwriteExisting)
+        }
+      }
+      (Some(start_index), Some(end_index)) -> if end_index < start_index {
+        Err(MalformedManagedBlock(path, identity))
+      } else {
+        let finish = end_index + string.length(end_marker)
+        let before = string.slice(existing, 0, start_index)
+        let after = string.slice(existing, finish, string.length(existing) - finish)
+        create_file(path, "#{before}#{managed_contents(identity, contents)}#{after}", OverwriteExisting)
+      }
+      _ -> Err(MalformedManagedBlock(path, identity))
+    }
+  }
+}
+
+#[doc("Removes a file and reports a missing target without treating it as an error.")]
+pub fn remove_file(path: String) : Result[Change, ActionError] / File = if not file.exists(path) {
+  Ok(Missing(path))
+} else {
+  match file.delete(path) {
+    Ok(_) -> Ok(Removed(path))
+    Err(message) -> Err(FileFailure(path, message))
+  }
+}
+
+#[doc("Creates a directory and any absent parents, leaving existing directories unchanged.")]
+pub fn ensure_directory(value: String) : Result[Change, ActionError] / File = if (((value == "") or (value == ".")) or (value == "/")) or file.exists(value) {
+  Ok(DirectoryExists(value))
+} else {
+  let parent = path.dirname(value)
+  if (parent != "") and (parent != value) {
+    let _ = ensure_directory(parent)!
+  }
+  match dir.create_dir(value) {
+    Ok(_) -> Ok(DirectoryCreated(value))
+    Err(message) -> Err(FileFailure(value, message))
+  }
+}

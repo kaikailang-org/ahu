@@ -1,0 +1,41 @@
+import ao.actions
+
+test "renders named templates without evaluation or reflection" {
+  let result = actions.render_template("module {{ module }}\n  owner={{owner}}\n", [actions.binding("module", "Demo"), actions.binding("owner", "Ana")])
+  assert result == Ok("module Demo\n  owner=Ana\n")
+}
+
+test "reports missing, duplicate, empty and unclosed template placeholders" {
+  assert match actions.render_template("{{missing}}", []) {
+    Err(error) -> actions.template_error_message(error) == "missing template binding `missing`"
+    _ -> false
+  }
+  assert match actions.render_template("{{x}}", [actions.binding("x", "one"), actions.binding("x", "two")]) {
+    Err(error) -> actions.template_error_message(error) == "duplicate template binding `x`"
+    _ -> false
+  }
+  assert match actions.render_template("{{ }}", []) {
+    Err(error) -> actions.template_error_message(error) == "empty template placeholder at byte 0"
+    _ -> false
+  }
+  assert match actions.render_template("before {{name", []) {
+    Err(error) -> actions.template_error_message(error) == "unclosed template placeholder at byte 7"
+    _ -> false
+  }
+}
+
+test "asks and confirms through explicit console effects" {
+  let confirmed = handle {
+    handle {
+      actions.confirm("Continue?", false)
+    } with Stdout {
+      print(_message, resume) -> resume(())
+      is_tty(resume) -> resume(false)
+    }
+  } with Stdin {
+    read_line(resume) -> resume(Some("sí"))
+    read_bytes(_n, resume) -> resume("")
+    is_tty(resume) -> resume(false)
+  }
+  assert confirmed
+}

@@ -1,0 +1,38 @@
+import ao.actions
+
+fn fail(message: String) : Int / Stderr {
+  Stderr.eprint(message)
+  1
+}
+
+fn main() : Int / File + Stderr {
+  let target = "/tmp/ao_actions_file_roundtrip.txt"
+  let template_target = "/tmp/ao_actions_template_roundtrip.txt"
+  let _ = actions.remove_file(target)
+  let _ = actions.remove_file(template_target)
+  if actions.create_file(target, "hello\n", FailIfExists) != Ok(Created(target)) {
+    fail("create failed")
+  } else if actions.create_file(target, "hello\n", FailIfExists) != Ok(Unchanged(target)) {
+    fail("unchanged detection failed")
+  } else if actions.create_file(target, "changed\n", SkipExisting) != Ok(Skipped(target)) {
+    fail("skip failed")
+  } else if actions.create_file(target, "hello\n", OverwriteExisting) != Ok(Unchanged(target)) {
+    fail("idempotent overwrite failed")
+  } else if actions.inject_after(target, "hello", " Ao") != Ok(Updated(target)) {
+    fail("injection failed")
+  } else if read_file(target) != Ok("hello Ao\n") {
+    fail("injected contents differ")
+  } else if actions.create_from_template("Hello {{name}}!\n", template_target, [actions.binding("name", "Kai")], FailIfExists) != Ok(Created(template_target)) {
+    fail("template creation failed")
+  } else if read_file(template_target) != Ok("Hello Kai!\n") {
+    fail("template contents differ")
+  } else {
+    let removed = actions.remove_file(target)
+    let template_removed = actions.remove_file(template_target)
+    if (removed == Ok(Removed(target))) and (template_removed == Ok(Removed(template_target))) {
+      0
+    } else {
+      fail("cleanup failed")
+    }
+  }
+}

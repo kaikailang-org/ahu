@@ -1,0 +1,45 @@
+import ao
+
+import ao.actions
+
+import path
+
+fn describe_change(value: actions.Change) : String = match value {
+  Created(path) -> "created #{path}"
+  Updated(path) -> "updated #{path}"
+  Unchanged(path) -> "unchanged #{path}"
+  Skipped(path) -> "skipped #{path}"
+  Removed(path) -> "removed #{path}"
+  Missing(path) -> "missing #{path}"
+  DirectoryCreated(path) -> "created #{path}"
+  DirectoryExists(path) -> "exists #{path}"
+}
+
+fn generate(context: ao.Context) : Result[Unit, String] / File + Stdout + Stdin = match ao.argument(context, "DIRECTORY") {
+  None -> Err("missing DIRECTORY")
+  Some(directory) -> {
+    let default_name = path.basename(directory)
+    let name = match ao.text(context, "name") {
+      Some(value) -> value
+      None -> actions.ask_with_default("Application name?", default_name)
+    }
+    let policy = if ao.boolean(context, "force") {
+      OverwriteExisting
+    } else {
+      FailIfExists
+    }
+    let directory_result = actions.ensure_directory(directory)
+    let _ = result.map_err(directory_result, actions.action_error_message)!
+    let destination = path.join(directory, "main.kai")
+    let template = "fn main() : Unit / Stdout = Stdout.print(\"Hello from {{name}}!\\n\")\n"
+    let template_result = actions.create_from_template(template, destination, [actions.binding("name", name)], policy)
+    let change = result.map_err(template_result, actions.action_error_message)!
+    actions.say_status("create", describe_change(change))
+    Ok(())
+  }
+}
+
+fn main() : Int / Env + File + Stdout + Stderr + Stdin {
+  let application = ao.app("ao-generator", "Generate a minimal Kaikai application") |> ao.versioned("0.1.0") |> ao.add_command(ao.command("new", "Create a project directory and main.kai", generate) |> ao.with_argument(ao.required_argument("DIRECTORY", "Destination directory.")) |> ao.with_option(ao.text_option("name", "Application name; asks interactively when omitted.") |> ao.short("n") |> ao.value_name("NAME")) |> ao.with_option(ao.boolean_option("force", "Overwrite a changed main.kai.") |> ao.short("f")))
+  ao.run(application)
+}
