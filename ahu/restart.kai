@@ -118,29 +118,29 @@ pub fn with_restart_backoff[e](
 }
 
 #[doc("""
-Spawn a cell of state `State` and message type `Msg` under restart
+Spawn a cell of state `st` and message type `msg` under restart
 supervision. Each restart re-spawns both the supervised body fiber
 and a fresh cell: state resets to `initial` and the previous cell
 pid is discarded.
 
 The composition: `with_restart` spawns and links the body fiber and
 installs trap-exit on the supervisor; the body fiber installs a
-nested `with_mailbox` of `Msg`; inside it, `cell.with_cell` spawns
+nested `with_mailbox` of `msg`; inside it, `cell.with_cell` spawns
 the cell and runs `driver(pid)`. When `driver` returns, trap-exit
 fires `Normal`/`Crashed` on the supervisor and the policy applies.
 
 A cell that crashes mid-driver is not observed by the supervisor:
-the body's most-recent mailbox is `Msg`, not `String`, so a cell
+the body's most-recent mailbox is `msg`, not `String`, so a cell
 trap-exit would mistype the channel. The driver discovers a dead
 cell through stalled receives or its own liveness checks. Cell-level
 crash observation is a planned follow-up.
 """)]
-pub fn restartable_cell[State, Msg, e](
+pub fn restartable_cell[st, msg, e](
   policy:  RestartPolicy,
   limit:   RestartLimit,
-  initial: State,
-  step:    (State, Msg) -> StepResult[State] / Actor[Msg] + e,
-  driver:  (Pid[Msg]) -> Unit / Actor[Msg] + e
+  initial: st,
+  step:    (st, msg) -> StepResult[st] / Actor[msg] + e,
+  driver:  (Pid[msg]) -> Unit / Actor[msg] + e
 ) : Unit / Actor[String] + Spawn + Link + Cancel + e =
   with_restart(policy, limit, (parent) => {
     Link.link(parent)

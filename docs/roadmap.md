@@ -56,9 +56,9 @@ Two complementary shapes:
 
 ### Layer 2 — Cells (state: **shipped**, ahu/cell.kai)
 
-`StepResult[State]`, `keep`, `cell_done`, `with_cell`, `ask`.
+`StepResult[st]`, `keep`, `cell_done`, `with_cell`, `ask`.
 A cell is a fiber + typed mailbox + recursive step function;
-the user writes `(State, Msg) -> StepResult[State] / e` and
+the user writes `(st, msg) -> StepResult[st] / Actor[msg] + e` and
 ahu drives it. Spec: `docs/design.md` §*Layer 2*.
 
 **Row constraint**: `with_cell` shares a single open row variable

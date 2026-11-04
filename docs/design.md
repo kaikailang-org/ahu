@@ -282,7 +282,7 @@ in a new ahu module.
 ### Layer 2 — Cells
 
 A cell is a long-running stateful entity with a typed mailbox.
-The user writes a **step function** `(State, Msg) -> StepResult[State] / e`
+The user writes a **step function** `(st, msg) -> StepResult[st] / Actor[msg] + e`
 and ahu runs it inside a fiber that parks on `Actor.receive()`
 between iterations. State threads through the recursion (no
 internal mutation); behaviour switches are encoded as a sum
@@ -290,16 +290,16 @@ type for State (Active → Paused → Draining as variants).
 
 ```kai
 # In ahu/cell.kai (imported as `import ahu.cell`):
-pub type StepResult[State] = Continue(State) | Done
+pub type StepResult[st] = Continue(st) | Done
 
-pub fn keep[State](s: State) : StepResult[State] = Continue(s)
-pub fn cell_done[State]() : StepResult[State] = Done
+pub fn keep[st](s: st) : StepResult[st] = Continue(s)
+pub fn cell_done[st]() : StepResult[st] = Done
 
-pub fn with_cell[State, Msg, R, e](
-  initial: State,
-  step:    (State, Msg) -> StepResult[State] / e,
-  body:    (Pid[Msg]) -> R / e
-) : R / Spawn + e
+pub fn with_cell[st, msg, r, e](
+  initial: st,
+  step:    (st, msg) -> StepResult[st] / Actor[msg] + e,
+  body:    (Pid[msg]) -> r / Actor[msg] + e
+) : r / Spawn + Actor[msg] + e
 ```
 
 A counter cell, end-to-end:
@@ -700,9 +700,9 @@ The pivot does not change this.
    callbacks) and the lazy shape (stdlib `stream`, `Stream[t, e]`,
    `import stream`). No `ahu/stream.kai` at all — convention and
    direct stdlib use over aliases or a re-implementation.
-2. **Layer 2 — Cells.** `StepResult[State]`, `keep`,
+2. **Layer 2 — Cells.** `StepResult[st]`, `keep`,
    `cell_done`, `with_cell`. The recursive step-function shape:
-   `(State, Msg) -> StepResult[State] / e`. The
+   `(st, msg) -> StepResult[st] / Actor[msg] + e`. The
    `receive { ... }` form desugars to `Actor.receive()` +
    `match`.
 3. **Layer 3 — Restart helpers.** `RestartPolicy`,

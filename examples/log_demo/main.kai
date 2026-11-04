@@ -52,7 +52,7 @@ type JobMsg
 # Deterministic `Log` capture for the current fiber: renders each
 # op as "LEVEL line" on stdout. Installed once per logging fiber
 # (see the determinism note above).
-fn with_stdout_log[R, e](f: () -> R / Log + e) : R / Console + e =
+fn with_stdout_log[r, e](f: () -> r / Log + e) : r / Console + e =
   handle {
     f()
   } with Log {
