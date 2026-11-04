@@ -1,0 +1,49 @@
+import yaml
+
+import yaml.errors as yaml_errors
+
+import yaml.loader
+
+import yaml.value
+
+fn parsed(source: String) : YamlValue = match yaml.parse(source) {
+  Ok(found) -> found
+  Err(found) -> panic(yaml_errors.message(found))
+}
+
+test "value accessors are total for mismatched kinds" {
+  let document = YMapping([Pair { fst: "answer", snd: YInt(42) }])
+  assert match value.as_mapping(document) {
+    Some(_) -> true
+    None -> false
+  }
+  assert value.as_int(YInt(42)) == Some(42)
+  assert value.as_string(YInt(42)) == None
+  assert value.get_path(document, ["missing"]) == None
+  assert value.kind_name(document) == "mapping"
+}
+
+test "canonical serialization is deterministic and round trips" {
+  let document = YMapping([Pair { fst: "es", snd: YMapping([Pair { fst: "greeting", snd: YString("Hola") }, Pair { fst: "enabled", snd: YBool(true) }, Pair { fst: "counts", snd: YSequence([YInt(1), YInt(2)]) }]) }])
+  let encoded = yaml.stringify(document)
+  assert encoded == "\"es\":\n  \"greeting\": \"Hola\"\n  \"enabled\": true\n  \"counts\":\n    - 1\n    - 2\n"
+  assert parsed(encoded) == document
+}
+
+test "load makes filesystem and parser failures explicit" {
+  let loaded = loader.load_with("config/locales/es.yml", path => if path == "config/locales/es.yml" {
+    Ok("es:\n  hello: Hola\n")
+  } else {
+    Err("not found")
+  })
+  assert match loaded {
+    Ok(document) -> value.get_path(document, ["es", "hello"]) == Some(YString("Hola"))
+    Err(found) -> panic(yaml_errors.load_message(found))
+  }
+  let missing = loader.load_with("missing.yml", _path => Err("not found"))
+  assert match missing {
+    Err(ReadError("missing.yml", "not found")) -> true
+    Err(found) -> panic(yaml_errors.load_message(found))
+    Ok(_) -> panic("expected missing file error")
+  }
+}

@@ -1,0 +1,106 @@
+#[doc("Deterministic YAML block-style serialization for the kai-yaml value model.")]
+
+import yaml.value as node
+
+fn hex_digit(value: Int) : String = string.slice("0123456789ABCDEF", value, 1)
+
+fn escaped_byte(code: Int) : String = "\\x#{hex_digit((code / 16) % 16)}#{hex_digit(code % 16)}"
+
+fn escape_string(source: String, index: Int, acc: [String]) : String = if index >= string.length(source) {
+  string.join(list.reverse(acc), "")
+} else {
+  match char_at(source, index) {
+    None -> string.join(list.reverse(acc), "")
+    Some(c) -> {
+      let code = char_to_int(c)
+      let fragment = if c == '"' {
+        "\\\""
+      } else if c == '\\' {
+        "\\\\"
+      } else if c == '\n' {
+        "\\n"
+      } else if c == '\r' {
+        "\\r"
+      } else if c == '\t' {
+        "\\t"
+      } else if code < 0x20 {
+        escaped_byte(code)
+      } else {
+        string.slice(source, index, 1)
+      }
+      escape_string(source, index + 1, [fragment, ...acc])
+    }
+  }
+}
+
+fn quote(source: String) : String = "\"#{escape_string(source, 0, [])}\""
+
+fn inline(value: node.YamlValue) : Option[String] = match value {
+  YNull -> Some("null")
+  YBool(found) -> Some(if found {
+    "true"
+  } else {
+    "false"
+  })
+  YInt(found) -> Some("#{found}")
+  YReal(found) -> Some(real_to_string(found))
+  YString(found) -> Some(quote(found))
+  YSequence(items) -> if list.is_empty(items) {
+    Some("[]")
+  } else {
+    None
+  }
+  YMapping(pairs) -> if list.is_empty(pairs) {
+    Some("{}")
+  } else {
+    None
+  }
+}
+
+fn render_mapping(pairs: [Pair[String, node.YamlValue]], indent: Int, acc: [String]) : [String] = match pairs {
+  [] -> list.reverse(acc)
+  [pair, ...rest] -> {
+    let prefix = "#{string.repeat(" ", indent)}#{quote(pair.fst)}:"
+    match inline(pair.snd) {
+      Some(rendered) -> render_mapping(rest, indent, ["#{prefix} #{rendered}", ...acc])
+      None -> {
+        let nested = render(pair.snd, indent + 2)
+        render_mapping(rest, indent, [...list.reverse(nested), prefix, ...acc])
+      }
+    }
+  }
+}
+
+fn render_sequence(items: [node.YamlValue], indent: Int, acc: [String]) : [String] = match items {
+  [] -> list.reverse(acc)
+  [item, ...rest] -> {
+    let prefix = "#{string.repeat(" ", indent)}-"
+    match inline(item) {
+      Some(rendered) -> render_sequence(rest, indent, ["#{prefix} #{rendered}", ...acc])
+      None -> {
+        let nested = render(item, indent + 2)
+        render_sequence(rest, indent, [...list.reverse(nested), prefix, ...acc])
+      }
+    }
+  }
+}
+
+fn render(value: node.YamlValue, indent: Int) : [String] = match value {
+  YMapping(pairs) -> if list.is_empty(pairs) {
+    ["#{string.repeat(" ", indent)}{}"]
+  } else {
+    render_mapping(pairs, indent, [])
+  }
+  YSequence(items) -> if list.is_empty(items) {
+    ["#{string.repeat(" ", indent)}[]"]
+  } else {
+    render_sequence(items, indent, [])
+  }
+  _ -> match inline(value) {
+    Some(found) -> ["#{string.repeat(" ", indent)}#{found}"]
+    None -> []
+  }
+}
+
+#[doc("Serializes one YAML value with stable key order and a final newline.")]
+pub fn stringify(value: node.YamlValue) : String = "#{string.join(render(value, 0), "\n")}\n"

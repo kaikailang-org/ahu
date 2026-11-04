@@ -1,0 +1,135 @@
+#[doc("The safe, application-facing value model produced by kai-yaml.")]
+
+#[doc("A YAML value using string mapping keys and the YAML 1.2 core scalar types supported by kai-yaml.")]
+pub type YamlValue
+  = YNull
+  | YBool(Bool)
+  | YInt(Int)
+  | YReal(Real)
+  | YString(String)
+  | YSequence([YamlValue])
+  | YMapping([Pair[String, YamlValue]])
+
+fn sequence_equal(left: [YamlValue], right: [YamlValue]) : Bool = match left {
+  [] -> list.is_empty(right)
+  [left_item, ...left_rest] -> match right {
+    [] -> false
+    [right_item, ...right_rest] -> if value_equal(left_item, right_item) {
+      sequence_equal(left_rest, right_rest)
+    } else {
+      false
+    }
+  }
+}
+
+fn mapping_equal(left: [Pair[String, YamlValue]], right: [Pair[String, YamlValue]]) : Bool = match left {
+  [] -> list.is_empty(right)
+  [left_pair, ...left_rest] -> match right {
+    [] -> false
+    [right_pair, ...right_rest] -> if (left_pair.fst == right_pair.fst) and value_equal(left_pair.snd, right_pair.snd) {
+      mapping_equal(left_rest, right_rest)
+    } else {
+      false
+    }
+  }
+}
+
+fn value_equal(left: YamlValue, right: YamlValue) : Bool = match left {
+  YNull -> match right {
+    YNull -> true
+    _ -> false
+  }
+  YBool(left_value) -> match right {
+    YBool(right_value) -> left_value == right_value
+    _ -> false
+  }
+  YInt(left_value) -> match right {
+    YInt(right_value) -> left_value == right_value
+    _ -> false
+  }
+  YReal(left_value) -> match right {
+    YReal(right_value) -> left_value == right_value
+    _ -> false
+  }
+  YString(left_value) -> match right {
+    YString(right_value) -> left_value == right_value
+    _ -> false
+  }
+  YSequence(left_items) -> match right {
+    YSequence(right_items) -> sequence_equal(left_items, right_items)
+    _ -> false
+  }
+  YMapping(left_pairs) -> match right {
+    YMapping(right_pairs) -> mapping_equal(left_pairs, right_pairs)
+    _ -> false
+  }
+}
+
+impl Eq for YamlValue {
+  fn eq(left: YamlValue, right: YamlValue) : Bool = value_equal(left, right)
+}
+
+#[doc("Returns the value stored under `key` when `value` is a mapping.")]
+pub fn get(value: YamlValue, key: String) : Option[YamlValue] = match value {
+  YMapping(pairs) -> match list.find(pairs, pair => pair.fst == key) {
+    Some(pair) -> Some(pair.snd)
+    None -> None
+  }
+  _ -> None
+}
+
+#[doc("Walks a sequence of string keys through nested mappings.")]
+pub fn get_path(value: YamlValue, path: [String]) : Option[YamlValue] = match path {
+  [] -> Some(value)
+  [key, ...rest] -> match get(value, key) {
+    Some(found) -> get_path(found, rest)
+    None -> None
+  }
+}
+
+#[doc("Returns the mapping entries, or `None` for another value kind.")]
+pub fn as_mapping(value: YamlValue) : Option[[Pair[String, YamlValue]]] = match value {
+  YMapping(pairs) -> Some(pairs)
+  _ -> None
+}
+
+#[doc("Returns the sequence items, or `None` for another value kind.")]
+pub fn as_sequence(value: YamlValue) : Option[[YamlValue]] = match value {
+  YSequence(items) -> Some(items)
+  _ -> None
+}
+
+#[doc("Returns the string payload, or `None` for another value kind.")]
+pub fn as_string(value: YamlValue) : Option[String] = match value {
+  YString(found) -> Some(found)
+  _ -> None
+}
+
+#[doc("Returns the integer payload, or `None` for another value kind.")]
+pub fn as_int(value: YamlValue) : Option[Int] = match value {
+  YInt(found) -> Some(found)
+  _ -> None
+}
+
+#[doc("Returns the real payload, or `None` for another value kind.")]
+pub fn as_real(value: YamlValue) : Option[Real] = match value {
+  YReal(found) -> Some(found)
+  _ -> None
+}
+
+#[doc("Returns the boolean payload, or `None` for another value kind.")]
+pub fn as_bool(value: YamlValue) : Option[Bool] = match value {
+  YBool(found) -> Some(found)
+  _ -> None
+}
+
+#[doc("Returns a stable human-readable name for a YAML value kind.")]
+pub fn kind_name(value: YamlValue) : String = match value {
+  YNull -> "null"
+  YBool(_) -> "boolean"
+  YInt(_) -> "integer"
+  YReal(_) -> "real"
+  YString(_) -> "string"
+  YSequence(_) -> "sequence"
+  YMapping(_) -> "mapping"
+}

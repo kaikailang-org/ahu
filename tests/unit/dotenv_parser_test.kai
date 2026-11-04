@@ -1,0 +1,79 @@
+import dotenv
+
+import dotenv.parser
+
+fn parsed(source: String) : parser.Document = match dotenv.parse(source) {
+  Ok(document) -> document
+  Err(error) -> panic(parser.error_message(error))
+}
+
+test "parses assignments, exports, comments and empty values" {
+  let document = parsed("# local config\nNAME=kaikai\nexport PORT = 4100 # dev\nEMPTY=\nBARE\nCOLON: value\n")
+  assert parser.pairs(document) == [("NAME", "kaikai"), ("PORT", "4100"), ("EMPTY", ""), ("BARE", ""), ("COLON", "value")]
+}
+
+test "preserves hashes in quotes and strips unquoted comments" {
+  let document = parsed("PLAIN=value # ignored\nDOUBLE=\"a # value\" # ignored\nSINGLE='pas$word # literal'\n")
+  assert parser.get(document, "PLAIN") == Some("value")
+  assert parser.get(document, "DOUBLE") == Some("a # value")
+  assert parser.get(document, "SINGLE") == Some("pas$word # literal")
+}
+
+test "expands earlier and explicit fallback variables" {
+  let source = "HOST=example.test\nURL=https://${HOST}/$PATH\nESCAPED=\\$HOST\nMISSING=$UNKNOWN\n"
+  let result = dotenv.parse_with(source, [("PATH", "api")])
+  assert match result {
+    Ok(document) -> ((parser.get(document, "URL") == Some("https://example.test/api")) and (parser.get(document, "ESCAPED") == Some("$HOST"))) and (parser.get(document, "MISSING") == Some(""))
+    Err(_) -> false
+  }
+}
+
+test "supports actual multiline quoted values and normalizes line endings" {
+  let document = parsed("PRIVATE_KEY=\"first\r\nsecond\rthird\"\r\nNEXT=ok\r\n")
+  assert parser.get(document, "PRIVATE_KEY") == Some("first\nsecond\nthird")
+  assert parser.get(document, "NEXT") == Some("ok")
+}
+
+test "later declarations replace earlier declarations in one document" {
+  let document = parsed("MODE=first\nMODE=second\n")
+  assert parser.pairs(document) == [("MODE", "second")]
+  assert match parser.entries(document) {
+    [entry] -> entry.line == 2
+    _ -> false
+  }
+}
+
+test "an export without assignment reuses an existing value" {
+  let result = dotenv.parse_with("export HOME\n", [("HOME", "/tmp/home")])
+  assert match result {
+    Ok(document) -> parser.get(document, "HOME") == Some("/tmp/home")
+    Err(_) -> false
+  }
+}
+
+test "reports positioned invalid names and unterminated quotes" {
+  assert match dotenv.parse("9INVALID=value\n") {
+    Err(error) -> (error.line == 1) and (error.column == 1)
+    _ -> false
+  }
+  assert match dotenv.parse("OK=yes\nBROKEN=\"never closes\n") {
+    Err(error) -> (error.line == 2) and (error.kind == UnterminatedQuote('"'))
+    _ -> false
+  }
+}
+
+test "rejects command substitution instead of executing dotenv files" {
+  assert match dotenv.parse("SHA=$(git rev-parse HEAD)\n") {
+    Err(error) -> match error.kind {
+      CommandSubstitution(_) -> true
+      _ -> false
+    }
+    _ -> false
+  }
+}
+
+test "renders templates and reports missing document keys" {
+  let document = parsed("HOST=localhost\nPORT=4100\n")
+  assert parser.template(document) == "HOST=HOST\nPORT=PORT\n"
+  assert parser.missing(document, ["HOST", "SECRET", "PORT"]) == ["SECRET"]
+}

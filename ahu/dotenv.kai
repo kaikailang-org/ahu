@@ -1,0 +1,170 @@
+#[doc("Loads development configuration from dotenv files through explicit File and Env effects.")]
+
+import dotenv.parser
+
+import fs.file
+
+#[doc("The semantic version of the kai-dotenv package.")]
+pub const VERSION : String = "0.1.0"
+
+#[doc("Whether file values replace variables already present in the process environment.")]
+#[derive(Eq)]
+pub type EnvironmentPolicy
+  = PreserveEnvironment
+  | OverwriteEnvironment
+
+#[doc("Whether absent dotenv files are skipped or reported as failures.")]
+#[derive(Eq)]
+pub type MissingFilePolicy
+  = IgnoreMissingFiles
+  | RequireFiles
+
+#[doc("Options controlling multi-file loading and environment precedence.")]
+#[derive(Eq)]
+pub type Options = { environment: EnvironmentPolicy, missing_files: MissingFilePolicy }
+
+#[doc("A successful load summary that never exposes configuration values.")]
+#[derive(Eq)]
+pub type Report = { files: [String], loaded: [String], preserved: [String] }
+
+#[doc("A recoverable file, syntax, environment, or required-key failure.")]
+#[derive(Eq)]
+pub type Error
+  = FileFailure(String, String)
+  | ParseFailure(String, parser.ParseError)
+  | EnvironmentFailure(String, String)
+  | MissingRequiredKeys([String])
+
+type ReadResult = { entries: [parser.Entry], files: [String] }
+
+type Previous = { name: String, value: Option[String] }
+
+#[doc("Returns conservative defaults: preserve the environment and ignore absent files.")]
+pub fn options() : Options = Options { environment: PreserveEnvironment, missing_files: IgnoreMissingFiles }
+
+#[doc("Returns options configured to overwrite variables already present in the environment.")]
+pub fn with_overwrite(value: Options) : Options = Options { ...value, environment: OverwriteEnvironment }
+
+#[doc("Returns options configured to fail when any requested file is absent.")]
+pub fn with_required_files(value: Options) : Options = Options { ...value, missing_files: RequireFiles }
+
+#[doc("Purely parses dotenv source without reading files or mutating the process environment.")]
+pub fn parse(source: String) : Result[parser.Document, parser.ParseError] = parser.parse(source)
+
+#[doc("Purely parses dotenv source with explicit fallback values for expansion.")]
+pub fn parse_with(source: String, base: [Pair[String, String]]) : Result[parser.Document, parser.ParseError] = parser.parse_with(source, base)
+
+#[doc("Reads and parses one required dotenv file without mutating the environment.")]
+pub fn read(path: String) : Result[parser.Document, Error] / File = match read_file(path) {
+  Err(message) -> Err(FileFailure(path, message))
+  Ok(source) -> match parser.parse(source) {
+    Err(error) -> Err(ParseFailure(path, error))
+    Ok(document) -> Ok(document)
+  }
+}
+
+fn find_pair(values: [Pair[String, String]], wanted: String) : Option[String] = list.find(values, pair => pair.fst == wanted) |> option.map(.snd)
+
+fn entry_pairs(values: [parser.Entry]) : [Pair[String, String]] = values | (entry => (entry.name, entry.value))
+
+fn contains_entry(values: [parser.Entry], wanted: String) : Bool = list.any(values, entry => entry.name == wanted)
+
+fn merge_first(existing: [parser.Entry], incoming: [parser.Entry]) : [parser.Entry] = match incoming {
+  [] -> existing
+  [entry, ...rest] -> if contains_entry(existing, entry.name) {
+    merge_first(existing, rest)
+  } else {
+    merge_first([...existing, entry], rest)
+  }
+}
+
+fn read_files(paths: [String], value: Options, environment: [Pair[String, String]], entries: [parser.Entry], files: [String]) : Result[ReadResult, Error] / File = match paths {
+  [] -> Ok(ReadResult { entries: entries, files: files })
+  [path, ...rest] -> if not file.exists(path) {
+    match value.missing_files {
+      IgnoreMissingFiles -> read_files(rest, value, environment, entries, files)
+      RequireFiles -> Err(FileFailure(path, "file does not exist"))
+    }
+  } else {
+    match read_file(path) {
+      Err(message) -> Err(FileFailure(path, message))
+      Ok(source) -> {
+        let base = [...entry_pairs(entries), ...environment]
+        match parser.parse_with(source, base) {
+          Err(error) -> Err(ParseFailure(path, error))
+          Ok(document) -> read_files(rest, value, environment, merge_first(entries, parser.entries(document)), [...files, path])
+        }
+      }
+    }
+  }
+}
+
+fn rollback(values: [Previous]) : Unit / Env = match values {
+  [] -> ()
+  [previous, ...rest] -> {
+    match previous.value {
+      None -> {
+        let _ = Env.unset_var(previous.name)
+        ()
+      }
+      Some(value) -> {
+        let _ = Env.set_var(previous.name, value)
+        ()
+      }
+    }
+    rollback(rest)
+  }
+}
+
+fn apply_entries(values: [parser.Entry], options: Options, environment: [Pair[String, String]], loaded: [String], preserved: [String], previous: [Previous]) : Result[([String], [String]), Error] / Env = match values {
+  [] -> Ok((list.reverse(loaded), list.reverse(preserved)))
+  [entry, ...rest] -> match (options.environment, find_pair(environment, entry.name)) {
+    (PreserveEnvironment, Some(_)) -> apply_entries(rest, options, environment, loaded, [entry.name, ...preserved], previous)
+    (_, before) -> match Env.set_var(entry.name, entry.value) {
+      Ok(_) -> apply_entries(rest, options, environment, [entry.name, ...loaded], preserved, [Previous { name: entry.name, value: before }, ...previous])
+      Err(message) -> {
+        rollback(previous)
+        Err(EnvironmentFailure(entry.name, message))
+      }
+    }
+  }
+}
+
+#[doc("Applies a parsed document to the environment using explicit precedence options.")]
+pub fn apply(value: parser.Document, options: Options) : Result[Report, Error] / Env {
+  let environment = Env.vars()
+  let applied = apply_entries(parser.entries(value), options, environment, [], [], [])!
+  Ok(Report { files: [], loaded: applied.fst, preserved: applied.snd })
+}
+
+#[doc("Loads `.env`, preserving existing variables and ignoring an absent file.")]
+pub fn load() : Result[Report, Error] / File + Env = load_files([".env"], options())
+
+#[doc("Loads one dotenv file with conservative default options.")]
+pub fn load_file(path: String) : Result[Report, Error] / File + Env = load_files([path], options())
+
+#[doc("Loads files in priority order; the first file defining a name wins.")]
+pub fn load_files(paths: [String], options: Options) : Result[Report, Error] / File + Env {
+  let environment = Env.vars()
+  let parsed = read_files(paths, options, environment, [], [])!
+  let applied = apply_entries(parsed.entries, options, environment, [], [], [])!
+  Ok(Report { files: parsed.files, loaded: applied.fst, preserved: applied.snd })
+}
+
+#[doc("Checks that every named process variable is present, including empty values.")]
+pub fn require_keys(keys: [String]) : Result[Unit, Error] / Env {
+  let missing = keys |? (name => Env.get(name) == None)
+  if list.is_empty(missing) {
+    Ok(())
+  } else {
+    Err(MissingRequiredKeys(missing))
+  }
+}
+
+#[doc("Formats a dotenv failure without exposing configuration values.")]
+pub fn error_message(value: Error) : String = match value {
+  FileFailure(path, message) -> "could not read `#{path}`: #{message}"
+  ParseFailure(path, error) -> "#{path}:#{parser.error_message(error)}"
+  EnvironmentFailure(name, message) -> "could not set environment variable `#{name}`: #{message}"
+  MissingRequiredKeys(keys) -> "missing required environment variables: #{string.join(keys, ", ")}"
+}

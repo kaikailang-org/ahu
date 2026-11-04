@@ -1,0 +1,347 @@
+#[doc("Pure parsing and expansion of dotenv documents.")]
+
+#[doc("One parsed environment assignment and its source line.")]
+#[derive(Eq)]
+pub type Entry = { name: String, value: String, line: Int }
+
+#[doc("An immutable parsed dotenv document in declaration order.")]
+pub type Document = { priv entries_value: [Entry] }
+
+#[doc("The category of a recoverable dotenv syntax failure.")]
+#[derive(Eq)]
+pub type ParseErrorKind
+  = InvalidAssignment
+  | InvalidName(String)
+  | UnterminatedQuote(Char)
+  | UnexpectedContent
+  | InvalidVariable(String)
+  | UnsetExport(String)
+  | CommandSubstitution(String)
+
+#[doc("A positioned dotenv syntax or expansion failure.")]
+#[derive(Eq)]
+pub type ParseError = { kind: ParseErrorKind, line: Int, column: Int, message: String }
+
+type LogicalLine = { source: String, start_line: Int }
+
+type Position = { line: Int, column: Int }
+
+type RawValue = { source: String, interpolate: Bool, offset: Int }
+
+#[doc("Returns every parsed entry in declaration order.")]
+pub fn entries(value: Document) : [Entry] = value.entries_value
+
+#[doc("Returns the parsed entries as deterministic name/value pairs.")]
+pub fn pairs(value: Document) : [Pair[String, String]] = value.entries_value | (entry => (entry.name, entry.value))
+
+#[doc("Returns all variable names in declaration order.")]
+pub fn keys(value: Document) : [String] = value.entries_value | (.name)
+
+fn find_entry(values: [Entry], wanted: String) : Option[Entry] = list.find(values, entry => entry.name == wanted)
+
+#[doc("Looks up a parsed value by variable name.")]
+pub fn get(value: Document, name: String) : Option[String] = find_entry(value.entries_value, name) |> option.map(.value)
+
+#[doc("Returns the required names absent from a parsed document.")]
+pub fn missing(value: Document, required: [String]) : [String] = required |? (name => get(value, name) == None)
+
+#[doc("Renders a shareable template whose values equal their variable names.")]
+pub fn template(value: Document) : String = (value.entries_value | (entry => "#{entry.name}=#{entry.name}\n")) |> string.join("")
+
+fn horizontal(char: Char) : Bool = (char == ' ') or (char == '\t')
+
+fn name_start(char: Char) : Bool = char.is_alpha() or (char == '_')
+
+fn name_char(char: Char) : Bool = char.is_alnum() or ((char == '_') or (char == '.'))
+
+fn variable_char(char: Char) : Bool = char.is_alnum() or (char == '_')
+
+fn byte_at(value: String, offset: Int) : Option[Char] = char_at(value, offset)
+
+fn skip_horizontal(value: String, offset: Int) : Int = match byte_at(value, offset) {
+  Some(char) -> if horizontal(char) {
+    skip_horizontal(value, offset + 1)
+  } else {
+    offset
+  }
+  None -> offset
+}
+
+fn scan_name(value: String, offset: Int) : Int = match byte_at(value, offset) {
+  Some(char) -> if name_char(char) {
+    scan_name(value, offset + 1)
+  } else {
+    offset
+  }
+  None -> offset
+}
+
+fn scan_variable(value: String, offset: Int) : Int = match byte_at(value, offset) {
+  Some(char) -> if variable_char(char) {
+    scan_variable(value, offset + 1)
+  } else {
+    offset
+  }
+  None -> offset
+}
+
+fn find_char(value: String, wanted: Char, offset: Int) : Option[Int] = byte_at(value, offset) |> option.and_then(char => if char == wanted {
+  Some(offset)
+} else {
+  find_char(value, wanted, offset + 1)
+})
+
+fn find_comment(value: String, offset: Int) : Int = match byte_at(value, offset) {
+  None -> string.length(value)
+  Some('#') -> offset
+  Some(_) -> find_comment(value, offset + 1)
+}
+
+fn find_separator(value: String, offset: Int) : Option[Int] = match byte_at(value, offset) {
+  None -> None
+  Some('#') -> None
+  Some('=') -> Some(offset)
+  Some(':') -> Some(offset)
+  Some(_) -> find_separator(value, offset + 1)
+}
+
+fn find_closing_quote(value: String, offset: Int, quote: Char) : Option[Int] = match byte_at(value, offset) {
+  None -> None
+  Some('\\') -> match byte_at(value, offset + 1) {
+    None -> None
+    Some(_) -> find_closing_quote(value, offset + 2, quote)
+  }
+  Some(char) -> if char == quote {
+    Some(offset)
+  } else {
+    find_closing_quote(value, offset + 1, quote)
+  }
+}
+
+fn value_offset(value: String) : Option[Int] = find_separator(value, 0) |> option.map(separator => skip_horizontal(value, separator + 1))
+
+fn open_quote(value: String) : Option[(Char, Int)] = value_offset(value) |> option.and_then(offset => {
+  byte_at(value, offset) |> option.and_then(quote => if (quote == '\'') or (quote == '"') {
+    match find_closing_quote(value, offset + 1, quote) {
+      None -> Some((quote, offset))
+      Some(_) -> None
+    }
+  } else {
+    None
+  })
+})
+
+fn collect_lines(lines: [String], line: Int, pending: Option[LogicalLine], acc: [LogicalLine]) : Result[[LogicalLine], ParseError] = match lines {
+  [] -> match pending {
+    None -> Ok(list.reverse(acc))
+    Some(logical) -> match open_quote(logical.source) {
+      None -> Ok(list.reverse([logical, ...acc]))
+      Some(found) -> Err(ParseError { kind: UnterminatedQuote(found.fst), line: logical.start_line, column: found.snd + 1, message: "unterminated quoted value" })
+    }
+  }
+  [current, ...rest] -> {
+    let logical = match pending {
+      None -> LogicalLine { source: current, start_line: line }
+      Some(before) -> LogicalLine { source: "#{before.source}\n#{current}", start_line: before.start_line }
+    }
+    match open_quote(logical.source) {
+      Some(_) -> collect_lines(rest, line + 1, Some(logical), acc)
+      None -> collect_lines(rest, line + 1, None, [logical, ...acc])
+    }
+  }
+}
+
+fn position_loop(value: String, offset: Int, target: Int, line: Int, column: Int) : Position = if offset >= target {
+  Position { line: line, column: column }
+} else {
+  match byte_at(value, offset) {
+    Some('\n') -> position_loop(value, offset + 1, target, line + 1, 1)
+    Some(_) -> position_loop(value, offset + 1, target, line, column + 1)
+    None -> Position { line: line, column: column }
+  }
+}
+
+fn position(value: LogicalLine, offset: Int) : Position = position_loop(value.source, 0, offset, value.start_line, 1)
+
+fn failure(value: LogicalLine, offset: Int, kind: ParseErrorKind, message: String) : ParseError {
+  let at = position(value, offset)
+  ParseError { kind: kind, line: at.line, column: at.column, message: message }
+}
+
+fn starts_export(value: String, offset: Int) : Bool = if string.length(value) < (offset + 7) {
+  false
+} else if string.slice(value, offset, 6) != "export" {
+  false
+} else {
+  match byte_at(value, offset + 6) {
+    Some(char) -> horizontal(char)
+    None -> false
+  }
+}
+
+fn trailing_valid(value: String, offset: Int) : Bool = match byte_at(value, skip_horizontal(value, offset)) {
+  None -> true
+  Some('#') -> true
+  Some(_) -> false
+}
+
+fn raw_value(logical: LogicalLine, offset: Int) : Result[RawValue, ParseError] {
+  let start = skip_horizontal(logical.source, offset)
+  match byte_at(logical.source, start) {
+    None -> Ok(RawValue { source: "", interpolate: true, offset: start })
+    Some('#') -> Ok(RawValue { source: "", interpolate: true, offset: start })
+    Some(quote) -> if (quote == '\'') or (quote == '"') {
+      match find_closing_quote(logical.source, start + 1, quote) {
+        None -> Err(failure(logical, start, UnterminatedQuote(quote), "unterminated quoted value"))
+        Some(close) -> if trailing_valid(logical.source, close + 1) {
+          Ok(RawValue { source: string.slice(logical.source, start + 1, (close - start) - 1), interpolate: quote == '"', offset: start + 1 })
+        } else {
+          Err(failure(logical, close + 1, UnexpectedContent, "unexpected content after quoted value"))
+        }
+      }
+    } else {
+      let finish = find_comment(logical.source, start)
+      Ok(RawValue { source: string.slice(logical.source, start, finish - start).trim_right(), interpolate: true, offset: start })
+    }
+  }
+}
+
+fn lookup_pair(values: [Pair[String, String]], wanted: String) : Option[String] = list.find(values, pair => pair.fst == wanted) |> option.map(.snd)
+
+fn lookup_value(entries: [Entry], base: [Pair[String, String]], wanted: String) : Option[String] = match find_entry(entries, wanted) {
+  Some(entry) -> Some(entry.value)
+  None -> lookup_pair(base, wanted)
+}
+
+fn finish_parts(parts: [String]) : String = parts |> list.reverse |> string.join("")
+
+fn expand_value(value: String, logical: LogicalLine, source_offset: Int, entries: [Entry], base: [Pair[String, String]], offset: Int, acc: [String]) : Result[String, ParseError] = match byte_at(value, offset) {
+  None -> Ok(finish_parts(acc))
+  Some('\\') -> match byte_at(value, offset + 1) {
+    None -> expand_value(value, logical, source_offset, entries, base, offset + 1, ["\\", ...acc])
+    Some(_) -> expand_value(value, logical, source_offset, entries, base, offset + 2, [string.slice(value, offset + 1, 1), ...acc])
+  }
+  Some('$') -> match byte_at(value, offset + 1) {
+    Some('(') -> Err(failure(logical, source_offset + offset, CommandSubstitution(string.slice(value, offset, string.length(value) - offset)), "command substitution is not supported; dotenv files are data, not executable code"))
+    Some('{') -> match find_char(value, '}', offset + 2) {
+      None -> Err(failure(logical, source_offset + offset, InvalidVariable(string.slice(value, offset, string.length(value) - offset)), "unclosed braced variable reference"))
+      Some(close) -> {
+        let name = string.slice(value, offset + 2, (close - offset) - 2)
+        if string.is_empty(name) or (not list.all(name.chars(), variable_char)) {
+          Err(failure(logical, source_offset + offset, InvalidVariable(name), "invalid braced variable reference"))
+        } else {
+          let replacement = option.unwrap_or(lookup_value(entries, base, name), "")
+          expand_value(value, logical, source_offset, entries, base, close + 1, [replacement, ...acc])
+        }
+      }
+    }
+    Some(next) -> if variable_char(next) {
+      let finish = scan_variable(value, offset + 1)
+      let name = string.slice(value, offset + 1, (finish - offset) - 1)
+      let replacement = option.unwrap_or(lookup_value(entries, base, name), "")
+      expand_value(value, logical, source_offset, entries, base, finish, [replacement, ...acc])
+    } else {
+      expand_value(value, logical, source_offset, entries, base, offset + 1, ["$", ...acc])
+    }
+    None -> expand_value(value, logical, source_offset, entries, base, offset + 1, ["$", ...acc])
+  }
+  Some(_) -> expand_value(value, logical, source_offset, entries, base, offset + 1, [string.slice(value, offset, 1), ...acc])
+}
+
+fn put_entry(values: [Entry], incoming: Entry) : [Entry] = match values {
+  [] -> [incoming]
+  [entry, ...rest] -> if entry.name == incoming.name {
+    [incoming, ...rest]
+  } else {
+    [entry, ...put_entry(rest, incoming)]
+  }
+}
+
+fn parse_assignment(logical: LogicalLine, entries: [Entry], base: [Pair[String, String]]) : Result[[Entry], ParseError] {
+  let first = skip_horizontal(logical.source, 0)
+  match byte_at(logical.source, first) {
+    None -> Ok(entries)
+    Some('#') -> Ok(entries)
+    Some(_) -> {
+      let exported = starts_export(logical.source, first)
+      let key_start = if exported {
+        skip_horizontal(logical.source, first + 6)
+      } else {
+        first
+      }
+      match byte_at(logical.source, key_start) {
+        Some(char) -> if not name_start(char) {
+          Err(failure(logical, key_start, InvalidName(""), "environment variable names must begin with a letter or underscore"))
+        } else {
+          let key_finish = scan_name(logical.source, key_start)
+          let key = string.slice(logical.source, key_start, key_finish - key_start)
+          let separator = skip_horizontal(logical.source, key_finish)
+          match byte_at(logical.source, separator) {
+            None -> if exported {
+              match lookup_value(entries, base, key) {
+                None -> Err(failure(logical, key_start, UnsetExport(key), "exported variable `#{key}` has no value"))
+                Some(value) -> Ok(put_entry(entries, Entry { name: key, value: value, line: logical.start_line }))
+              }
+            } else {
+              Ok(put_entry(entries, Entry { name: key, value: "", line: logical.start_line }))
+            }
+            Some('#') -> if exported {
+              match lookup_value(entries, base, key) {
+                None -> Err(failure(logical, key_start, UnsetExport(key), "exported variable `#{key}` has no value"))
+                Some(value) -> Ok(put_entry(entries, Entry { name: key, value: value, line: logical.start_line }))
+              }
+            } else {
+              Ok(put_entry(entries, Entry { name: key, value: "", line: logical.start_line }))
+            }
+            Some('=') -> {
+              let raw = raw_value(logical, separator + 1)!
+              let parsed = if raw.interpolate {
+                expand_value(raw.source, logical, raw.offset, entries, base, 0, [])!
+              } else {
+                raw.source
+              }
+              Ok(put_entry(entries, Entry { name: key, value: parsed, line: logical.start_line }))
+            }
+            Some(':') -> match byte_at(logical.source, separator + 1) {
+              Some(char) -> if horizontal(char) {
+                let raw = raw_value(logical, separator + 1)!
+                let parsed = if raw.interpolate {
+                  expand_value(raw.source, logical, raw.offset, entries, base, 0, [])!
+                } else {
+                  raw.source
+                }
+                Ok(put_entry(entries, Entry { name: key, value: parsed, line: logical.start_line }))
+              } else {
+                Err(failure(logical, separator, InvalidAssignment, "the `:` separator must be followed by whitespace"))
+              }
+              None -> Err(failure(logical, separator, InvalidAssignment, "the `:` separator requires a value"))
+            }
+            Some(_) -> Err(failure(logical, separator, InvalidAssignment, "expected `=`, `: `, a comment, or end of line after `#{key}`"))
+          }
+        }
+        None -> Err(failure(logical, key_start, InvalidAssignment, "expected an environment assignment"))
+      }
+    }
+  }
+}
+
+fn parse_logical(values: [LogicalLine], base: [Pair[String, String]], acc: [Entry]) : Result[Document, ParseError] = match values {
+  [] -> Ok(Document { entries_value: acc })
+  [logical, ...rest] -> {
+    let next = parse_assignment(logical, acc, base)!
+    parse_logical(rest, base, next)
+  }
+}
+
+#[doc("Parses dotenv source using no external values for variable expansion.")]
+pub fn parse(source: String) : Result[Document, ParseError] = parse_with(source, [])
+
+#[doc("Parses dotenv source with explicit fallback values for variable expansion.")]
+pub fn parse_with(source: String, base: [Pair[String, String]]) : Result[Document, ParseError] {
+  let normalized = source |> string.replace("\r\n", "\n") |> string.replace("\r", "\n")
+  let logical = collect_lines(string.lines(normalized), 1, None, [])!
+  parse_logical(logical, base, [])
+}
+
+#[doc("Formats a positioned parse failure for display to a person.")]
+pub fn error_message(value: ParseError) : String = "line #{value.line}, column #{value.column}: #{value.message}"

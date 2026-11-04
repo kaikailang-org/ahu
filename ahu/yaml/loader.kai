@@ -1,0 +1,19 @@
+#[doc("Filesystem loading at the explicit effectful boundary of kai-yaml.")]
+
+import yaml.errors as yaml_errors
+
+import yaml.parser
+
+import yaml.value as node
+
+#[doc("Reads through an injected function and parses one YAML document; useful for virtual filesystems and tests.")]
+pub fn load_with[e](path: String, read: (String) -> Result[String, String] / e) : Result[node.YamlValue, yaml_errors.LoadError] / e = match read(path) {
+  Err(detail) -> Err(yaml_errors.ReadError(path, detail))
+  Ok(source) -> match parser.parse(source) {
+    Err(found) -> Err(yaml_errors.ParseFailure(found))
+    Ok(document) -> Ok(document)
+  }
+}
+
+#[doc("Reads and parses one YAML document through the explicit `File` effect.")]
+pub fn load(path: String) : Result[node.YamlValue, yaml_errors.LoadError] / File = loader.load_with(path, wanted => read_file(wanted))

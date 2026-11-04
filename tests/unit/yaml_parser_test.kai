@@ -1,0 +1,88 @@
+import yaml
+
+import yaml.errors as yaml_errors
+
+import yaml.value
+
+fn parsed(source: String) : YamlValue = match yaml.parse(source) {
+  Ok(found) -> found
+  Err(found) -> panic(yaml_errors.message(found))
+}
+
+test "parses nested mappings for application configuration" {
+  let document = parsed("es:\n  greeting: Hola\n  navigation:\n    home: Inicio\n    empty:\n")
+  assert value.get_path(document, ["es", "greeting"]) == Some(YString("Hola"))
+  assert value.get_path(document, ["es", "navigation", "home"]) == Some(YString("Inicio"))
+  assert value.get_path(document, ["es", "navigation", "empty"]) == Some(YNull)
+}
+
+test "resolves YAML 1.2 core scalars without YAML 1.1 surprises" {
+  let document = parsed("enabled: true\nlegacy_word: yes\ncount: 3\nratio: 1.5\nnothing: null\ncode: '0123'\n")
+  assert value.get(document, "enabled") == Some(YBool(true))
+  assert value.get(document, "legacy_word") == Some(YString("yes"))
+  assert value.get(document, "count") == Some(YInt(3))
+  assert value.get(document, "ratio") == Some(YReal(1.5))
+  assert value.get(document, "nothing") == Some(YNull)
+  assert value.get(document, "code") == Some(YString("0123"))
+}
+
+test "parses block and flow collections including compact mapping items" {
+  let document = parsed("users:\n  - name: Ana\n    roles: [admin, writer]\n  - name: Kai\n    roles: []\nmeta: {active: true, retries: 2}\n")
+  let users = match value.get(document, "users") {
+    Some(YSequence(found)) -> found
+    _ -> panic("expected users sequence")
+  }
+  assert list.length(users) == 2
+  assert match list.nth(users, 0) {
+    Some(first) -> value.get_path(first, ["roles"]) == Some(YSequence([YString("admin"), YString("writer")]))
+    None -> false
+  }
+  assert value.get_path(document, ["meta", "retries"]) == Some(YInt(2))
+}
+
+test "accepts indentationless sequences as mapping values" {
+  let document = parsed("teams:\n- red\n- blue\nactive: true\n")
+  assert value.get(document, "teams") == Some(YSequence([YString("red"), YString("blue")]))
+  assert value.get(document, "active") == Some(YBool(true))
+}
+
+test "handles comments and both quoted scalar styles" {
+  let document = parsed("title: \"Hola \\u263A\" # visible comment\nmessage: 'It''s # text'\nfragment: value#kept\ninterpolation: Hola %{name}\n")
+  assert value.get(document, "title") == Some(YString("Hola ☺"))
+  assert value.get(document, "message") == Some(YString("It's # text"))
+  assert value.get(document, "fragment") == Some(YString("value#kept"))
+  assert value.get(document, "interpolation") == Some(YString("Hola %{name}"))
+}
+
+test "parses literal and folded block scalars with chomping" {
+  let document = parsed("literal: |\n  first\n  second\nfolded: >-\n  first\n  second\n")
+  assert value.get(document, "literal") == Some(YString("first\nsecond\n"))
+  assert value.get(document, "folded") == Some(YString("first second"))
+}
+
+test "keep chomping preserves intentional final blank lines" {
+  let document = parsed("text: |+\n  first\n\n")
+  assert value.get(document, "text") == Some(YString("first\n\n"))
+}
+
+test "rejects duplicate keys and unsupported aliases with positions" {
+  assert match yaml.parse("name: one\nname: two\n") {
+    Err(ParseError { kind: DuplicateKey("name"), line: 2, column: 1, message: _ }) -> true
+    _ -> false
+  }
+  assert match yaml.parse("defaults: &base\n  active: true\n") {
+    Err(ParseError { kind: UnsupportedFeature("anchors"), line: 1, column: _, message: _ }) -> true
+    _ -> false
+  }
+}
+
+test "rejects indentation tabs and multiple documents" {
+  assert match yaml.parse("root:\n\tchild: true\n") {
+    Err(ParseError { kind: InvalidIndentation, line: 2, column: 1, message: _ }) -> true
+    _ -> false
+  }
+  assert match yaml.parse("---\na: 1\n---\nb: 2\n") {
+    Err(ParseError { kind: MultipleDocuments, line: 3, column: 1, message: _ }) -> true
+    _ -> false
+  }
+}
