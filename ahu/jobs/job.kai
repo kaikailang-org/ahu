@@ -83,7 +83,7 @@ pub fn materialize_with(value: Spec, id: String, enqueued_at: time.WallTime) : R
 
 #[doc("Assigns a fresh collision-resistant ID and captures the current wall time.")]
 pub fn materialize(value: Spec) : Result[Job, JobError] / Clock + SecureRandom {
-  let id = "job_#{hex.encode(SecureRandom.bytes(16))}"
+  let id = "anga_#{hex.encode(SecureRandom.bytes(16))}"
   materialize_with(value, id, time.now())
 }
 
