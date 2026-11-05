@@ -2,9 +2,6 @@
 
 import os.args
 
-#[doc("The semantic version of the Ao package.")]
-pub const VERSION : String = "0.1.0"
-
 #[doc("The cardinality of one positional command argument.")]
 pub type ArgumentMode
   = RequiredArgument
@@ -201,18 +198,18 @@ pub fn texts(value: Context, name: String) : [String] = match find_option(value.
 
 fn valid_name_chars(chars: [Char], allow_colon: Bool) : Bool = match chars {
   [] -> true
-  [char, ...rest] -> if ((char.is_alnum() or (char == '-')) or (char == '_')) or (allow_colon and (char == ':')) {
+  [char, ...rest] -> if (((char |> is_alnum()) or (char == '-')) or (char == '_')) or (allow_colon and (char == ':')) {
     valid_name_chars(rest, allow_colon)
   } else {
     false
   }
 }
 
-fn valid_name(value: String, allow_colon: Bool) : Bool = (not string.is_blank(value)) and valid_name_chars(value.chars(), allow_colon)
+fn valid_name(value: String, allow_colon: Bool) : Bool = (not string.is_blank(value)) and valid_name_chars(string.chars(value), allow_colon)
 
 fn duplicate(values: [String], seen: [String]) : Option[String] = match values {
   [] -> None
-  [value, ...rest] -> if seen.contains(value) {
+  [value, ...rest] -> if list.contains(seen, value) {
     Some(value)
   } else {
     duplicate(rest, [value, ...seen])
@@ -316,7 +313,7 @@ fn validate_commands(values: [Command[e]]) : Option[String] = match values {
   }
 }
 
-fn find_command(values: [Command[e]], wanted: String) : Option[Command[e]] = list.find(values, value => (value.name_value == wanted) or value.aliases_value.contains(wanted))
+fn find_command(values: [Command[e]], wanted: String) : Option[Command[e]] = list.find(values, value => (value.name_value == wanted) or list.contains(value.aliases_value, wanted))
 
 fn validate_app(value: App[e]) : Option[String] = if not valid_name(value.name_value, false) {
   Some("invalid application name `#{value.name_value}`")
@@ -494,7 +491,7 @@ fn bind_arguments(specs: [ArgumentSpec], values: [String], acc: [ArgumentValue])
   }
 }
 
-fn resolve_command(value: Command[e], tokens: [String]) : Result[Resolution[e], Error] = if tokens.contains("--help") or tokens.contains("-h") {
+fn resolve_command(value: Command[e], tokens: [String]) : Result[Resolution[e], Error] = if list.contains(tokens, "--help") or list.contains(tokens, "-h") {
   Ok(CommandHelp(value))
 } else {
   let parsed = parse_tokens(value.options_value, tokens, ParseState { positionals: [], options: [], options_enabled: true })!
@@ -642,7 +639,7 @@ fn default_note(value: App[e]) : String = match value.default_command_value {
   Some(name) -> "\nDefault command: #{name}\n"
 }
 
-#[doc("Renders deterministic application help from an Ao specification.")]
+#[doc("Renders deterministic application help from an application specification.")]
 pub fn render_help[e](value: App[e]) : String = "#{value.name_value} — #{value.description_value}\n\nUsage:\n  #{value.name_value} <command> [options]\n\n#{render_section("Commands", [...command_rows(value.commands_value), ("help [COMMAND]", "Show help for the application or one command.")])}#{render_section("Options", builtin_option_rows(value))}#{default_note(value)}"
 
 #[doc("Renders deterministic help for one registered command.")]
@@ -653,7 +650,7 @@ pub fn render_command_help[e](application: App[e], value: Command[e]) : String {
 
 #[doc("Formats a command-line error for display to a person.")]
 pub fn error_message(value: Error) : String = match value {
-  InvalidDefinition(message) -> "invalid Ao application: #{message}"
+  InvalidDefinition(message) -> "invalid application: #{message}"
   UnknownCommand(name) -> "unknown command `#{name}`"
   UnknownOption(name) -> "unknown option `#{name}`"
   MissingOptionValue(name) -> "option `#{name}` requires a value"

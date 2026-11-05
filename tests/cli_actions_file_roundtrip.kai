@@ -1,4 +1,6 @@
-import ao.actions
+import ahu.cli.actions
+
+import fs.file
 
 fn fail(message: String) : Int / Stderr {
   Stderr.eprint(message)
@@ -18,13 +20,13 @@ fn main() : Int / File + Stderr {
     fail("skip failed")
   } else if actions.create_file(target, "hello\n", OverwriteExisting) != Ok(Unchanged(target)) {
     fail("idempotent overwrite failed")
-  } else if actions.inject_after(target, "hello", " Ao") != Ok(Updated(target)) {
+  } else if actions.inject_after(target, "hello", " ahu") != Ok(Updated(target)) {
     fail("injection failed")
-  } else if read_file(target) != Ok("hello Ao\n") {
+  } else if file.read(target) != Ok("hello ahu\n") {
     fail("injected contents differ")
   } else if actions.create_from_template("Hello {{name}}!\n", template_target, [actions.binding("name", "Kai")], FailIfExists) != Ok(Created(template_target)) {
     fail("template creation failed")
-  } else if read_file(template_target) != Ok("Hello Kai!\n") {
+  } else if file.read(template_target) != Ok("Hello Kai!\n") {
     fail("template contents differ")
   } else {
     let removed = actions.remove_file(target)

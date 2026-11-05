@@ -1,4 +1,4 @@
-import ao.actions
+import ahu.cli.actions
 
 test "renders named templates without evaluation or reflection" {
   let result = actions.render_template("module {{ module }}\n  owner={{owner}}\n", [actions.binding("module", "Demo"), actions.binding("owner", "Ana")])

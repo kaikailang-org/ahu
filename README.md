@@ -215,6 +215,8 @@ is required.
   dependencies on kaikai, not-goals, references.
 - **`docs/dotenv.md`**, **`docs/yaml.md`** — the configuration
   modules `ahu.dotenv` and `ahu.yaml`.
+- **`docs/cli.md`** — `ahu.cli`, declarative command-line
+  applications.
 - **`docs/roadmap.md`** — components and their state; the
   shape ahu uses instead of milestones.
 - **`docs/known-regressions.md`** — open issues outside this

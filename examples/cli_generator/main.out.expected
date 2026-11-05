@@ -1,0 +1,14 @@
+generator — Generate a minimal Kaikai application
+
+Usage:
+  generator <command> [options]
+
+Commands:
+  new <DIRECTORY>  Create a project directory and main.kai
+  help [COMMAND]   Show help for the application or one command.
+
+Options:
+  -h, --help     Show this help message.
+  -v, --version  Show the application version.
+
+

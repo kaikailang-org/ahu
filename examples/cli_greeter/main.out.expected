@@ -1,0 +1,14 @@
+greeter — A small ahu.cli example
+
+Usage:
+  greeter <command> [options]
+
+Commands:
+  greet <NAME>    Greet one person Aliases: hello.
+  help [COMMAND]  Show help for the application or one command.
+
+Options:
+  -h, --help     Show this help message.
+  -v, --version  Show the application version.
+
+

@@ -1,4 +1,4 @@
-#[doc("Interactive, template, and filesystem actions for Ao command handlers.")]
+#[doc("Interactive, template, and filesystem actions for ahu.cli command handlers.")]
 
 import fs.dir
 
@@ -6,7 +6,7 @@ import fs.file
 
 import path
 
-#[doc("A named string substituted into an Ao template placeholder.")]
+#[doc("A named string substituted into a template placeholder.")]
 pub type Binding = { priv name_value: String, priv value_value: String }
 
 #[doc("A recoverable template rendering failure.")]
@@ -107,7 +107,7 @@ fn binding_names(values: [Binding]) : [String] = values | (.name_value)
 
 fn duplicate(values: [String], seen: [String]) : Option[String] = match values {
   [] -> None
-  [value, ...rest] -> if seen.contains(value) {
+  [value, ...rest] -> if list.contains(seen, value) {
     Some(value)
   } else {
     duplicate(rest, [value, ...seen])
@@ -165,7 +165,7 @@ pub fn action_error_message(value: ActionError) : String = match value {
   TemplateFailure(error) -> template_error_message(error)
 }
 
-fn write_new(path: String, contents: String, result: Change) : Result[Change, ActionError] / File = match write_file(path, contents) {
+fn write_new(path: String, contents: String, result: Change) : Result[Change, ActionError] / File = match file.write(path, contents) {
   Ok(_) -> Ok(result)
   Err(message) -> Err(FileFailure(path, message))
 }
@@ -174,7 +174,7 @@ fn write_new(path: String, contents: String, result: Change) : Result[Change, Ac
 pub fn create_file(path: String, contents: String, policy: ConflictPolicy) : Result[Change, ActionError] / File = if not file.exists(path) {
   write_new(path, contents, Created(path))
 } else {
-  match read_file(path) {
+  match file.read(path) {
     Err(message) -> Err(FileFailure(path, message))
     Ok(existing) -> if existing == contents {
       Ok(Unchanged(path))
@@ -189,7 +189,7 @@ pub fn create_file(path: String, contents: String, policy: ConflictPolicy) : Res
 }
 
 #[doc("Copies one text file to another path using an explicit conflict policy.")]
-pub fn copy_file(source: String, destination: String, policy: ConflictPolicy) : Result[Change, ActionError] / File = match read_file(source) {
+pub fn copy_file(source: String, destination: String, policy: ConflictPolicy) : Result[Change, ActionError] / File = match file.read(source) {
   Err(message) -> Err(FileFailure(source, message))
   Ok(contents) -> create_file(destination, contents, policy)
 }
@@ -201,14 +201,14 @@ pub fn create_from_template(source: String, destination: String, bindings: [Bind
 }
 
 #[doc("Reads, renders, and writes a template file using explicit bindings and conflict policy.")]
-pub fn template_file(source: String, destination: String, bindings: [Binding], policy: ConflictPolicy) : Result[Change, ActionError] / File = match read_file(source) {
+pub fn template_file(source: String, destination: String, bindings: [Binding], policy: ConflictPolicy) : Result[Change, ActionError] / File = match file.read(source) {
   Err(message) -> Err(FileFailure(source, message))
   Ok(template) -> create_from_template(template, destination, bindings, policy)
 }
 
 #[doc("Appends text to a file, creating it when absent.")]
 pub fn append_file(path: String, contents: String) : Result[Change, ActionError] / File = if file.exists(path) {
-  match read_file(path) {
+  match file.read(path) {
     Err(message) -> Err(FileFailure(path, message))
     Ok(existing) -> write_new(path, "#{existing}#{contents}", Updated(path))
   }
@@ -217,7 +217,7 @@ pub fn append_file(path: String, contents: String) : Result[Change, ActionError]
 }
 
 #[doc("Inserts text immediately after the first marker occurrence in a text file.")]
-pub fn inject_after(path: String, marker: String, contents: String) : Result[Change, ActionError] / File = match read_file(path) {
+pub fn inject_after(path: String, marker: String, contents: String) : Result[Change, ActionError] / File = match file.read(path) {
   Err(message) -> Err(FileFailure(path, message))
   Ok(existing) -> match string.index_of(existing, marker) {
     None -> Err(MissingMarker(path, marker))
@@ -250,7 +250,7 @@ fn line_end_after(value: String, marker_end: Int) : Int {
 }
 
 #[doc("Creates or replaces one named managed block after an anchor without duplicating it on reruns.")]
-pub fn upsert_managed_block(path: String, anchor: String, identity: String, contents: String) : Result[Change, ActionError] / File = match read_file(path) {
+pub fn upsert_managed_block(path: String, anchor: String, identity: String, contents: String) : Result[Change, ActionError] / File = match file.read(path) {
   Err(message) -> Err(FileFailure(path, message))
   Ok(existing) -> {
     let start_marker = managed_marker(identity, "start")

@@ -1,73 +1,73 @@
-import ao
+import ahu.cli
 
-fn noop(_context: ao.Context) : Result[Unit, String] = Ok(())
+fn noop(_context: cli.Context) : Result[Unit, String] = Ok(())
 
-fn configured_app[e]() : ao.App[e] = ao.app("forge", "Build useful things") |> ao.versioned("1.2.3") |> ao.add_command(ao.command("build", "Build one target", noop) |> ao.command_alias("b") |> ao.with_argument(ao.required_argument("TARGET", "Target to build.")) |> ao.with_argument(ao.repeated_argument("FILES", "Input files.")) |> ao.with_option(ao.text_option_with_default("profile", "Build profile.", "debug") |> ao.short("p")) |> ao.with_option(ao.integer_option("jobs", "Worker count.") |> ao.short("j")) |> ao.with_option(ao.boolean_option("force", "Overwrite existing output.") |> ao.short("f")) |> ao.with_option(ao.text_list_option("tag", "Attach a tag.")))
+fn configured_app[e]() : cli.App[e] = cli.app("forge", "Build useful things") |> cli.versioned("1.2.3") |> cli.add_command(cli.command("build", "Build one target", noop) |> cli.command_alias("b") |> cli.with_argument(cli.required_argument("TARGET", "Target to build.")) |> cli.with_argument(cli.repeated_argument("FILES", "Input files.")) |> cli.with_option(cli.text_option_with_default("profile", "Build profile.", "debug") |> cli.short("p")) |> cli.with_option(cli.integer_option("jobs", "Worker count.") |> cli.short("j")) |> cli.with_option(cli.boolean_option("force", "Overwrite existing output.") |> cli.short("f")) |> cli.with_option(cli.text_list_option("tag", "Attach a tag.")))
 
 test "resolves command aliases, typed options, repeated options and positionals" {
-  let result = ao.resolve(configured_app(), ["b", "site", "a.kai", "b.kai", "-p", "release", "--jobs=4", "--force", "--tag", "one", "--tag=two"])
+  let result = cli.resolve(configured_app(), ["b", "site", "a.kai", "b.kai", "-p", "release", "--jobs=4", "--force", "--tag", "one", "--tag=two"])
   assert match result {
-    Ok(Invoke(_, context)) -> ((((((ao.command_name(context) == "build") and (ao.argument(context, "TARGET") == Some("site"))) and (ao.arguments(context, "FILES") == ["a.kai", "b.kai"])) and (ao.text(context, "profile") == Some("release"))) and (ao.integer(context, "jobs") == Some(4))) and ao.boolean(context, "force")) and (ao.texts(context, "tag") == ["one", "two"])
+    Ok(Invoke(_, context)) -> ((((((cli.command_name(context) == "build") and (cli.argument(context, "TARGET") == Some("site"))) and (cli.arguments(context, "FILES") == ["a.kai", "b.kai"])) and (cli.text(context, "profile") == Some("release"))) and (cli.integer(context, "jobs") == Some(4))) and cli.boolean(context, "force")) and (cli.texts(context, "tag") == ["one", "two"])
     _ -> false
   }
 }
 
 test "tracks whether a defaulted option was explicitly supplied" {
-  let result = ao.resolve(configured_app(), ["build", "site"])
+  let result = cli.resolve(configured_app(), ["build", "site"])
   assert match result {
-    Ok(Invoke(_, context)) -> ((ao.text(context, "profile") == Some("debug")) and (not ao.option_present(context, "profile"))) and (not ao.boolean(context, "force"))
+    Ok(Invoke(_, context)) -> ((cli.text(context, "profile") == Some("debug")) and (not cli.option_present(context, "profile"))) and (not cli.boolean(context, "force"))
     _ -> false
   }
 }
 
 test "supports boolean negation and the option terminator" {
-  let result = ao.resolve(configured_app(), ["build", "site", "--force", "--no-force", "--", "-literal"])
+  let result = cli.resolve(configured_app(), ["build", "site", "--force", "--no-force", "--", "-literal"])
   assert match result {
-    Err(error) -> ao.error_message(error) == "option `--force` may only be supplied once"
+    Err(error) -> cli.error_message(error) == "option `--force` may only be supplied once"
     _ -> false
   }
 }
 
 test "the option terminator preserves dash-prefixed positional values" {
-  let result = ao.resolve(configured_app(), ["build", "site", "--", "-literal"])
+  let result = cli.resolve(configured_app(), ["build", "site", "--", "-literal"])
   assert match result {
-    Ok(Invoke(_, context)) -> ao.arguments(context, "FILES") == ["-literal"]
+    Ok(Invoke(_, context)) -> cli.arguments(context, "FILES") == ["-literal"]
     _ -> false
   }
 }
 
 test "reports missing arguments and malformed typed options" {
-  let missing = ao.resolve(configured_app(), ["build"])
-  let malformed = ao.resolve(configured_app(), ["build", "site", "--jobs", "many"])
+  let missing = cli.resolve(configured_app(), ["build"])
+  let malformed = cli.resolve(configured_app(), ["build", "site", "--jobs", "many"])
   assert match missing {
-    Err(error) -> ao.error_message(error) == "required argument `TARGET` is missing"
+    Err(error) -> cli.error_message(error) == "required argument `TARGET` is missing"
     _ -> false
   }
   assert match malformed {
-    Err(error) -> ao.error_message(error) == "option `--jobs` expects an integer, got `many`"
+    Err(error) -> cli.error_message(error) == "option `--jobs` expects an integer, got `many`"
     _ -> false
   }
 }
 
 test "resolves application, command and version help without running handlers" {
-  assert match ao.resolve(configured_app(), ["--help"]) {
+  assert match cli.resolve(configured_app(), ["--help"]) {
     Ok(ApplicationHelp) -> true
     _ -> false
   }
-  assert match ao.resolve(configured_app(), ["help", "build"]) {
+  assert match cli.resolve(configured_app(), ["help", "build"]) {
     Ok(CommandHelp(_)) -> true
     _ -> false
   }
-  assert match ao.resolve(configured_app(), ["--version"]) {
+  assert match cli.resolve(configured_app(), ["--version"]) {
     Ok(ApplicationVersion("1.2.3")) -> true
     _ -> false
   }
 }
 
 test "renders deterministic self-documenting help" {
-  let application_help = ao.render_help(configured_app())
-  let command_help = match ao.resolve(configured_app(), ["help", "build"]) {
-    Ok(CommandHelp(command)) -> ao.render_command_help(configured_app(), command)
+  let application_help = cli.render_help(configured_app())
+  let command_help = match cli.resolve(configured_app(), ["help", "build"]) {
+    Ok(CommandHelp(command)) -> cli.render_command_help(configured_app(), command)
     _ -> panic("expected command help")
   }
   assert string.index_of(application_help, "forge <command> [options]") != None
@@ -77,26 +77,26 @@ test "renders deterministic self-documenting help" {
 }
 
 test "rejects conflicting command and option declarations" {
-  let duplicate_commands = ao.app("bad", "bad") |> ao.add_command(ao.command("one", "one", noop) |> ao.command_alias("shared")) |> ao.add_command(ao.command("two", "two", noop) |> ao.command_alias("shared"))
-  let duplicate_options = ao.app("bad", "bad") |> ao.add_command(ao.command("run", "run", noop) |> ao.with_option(ao.text_option("name", "first")) |> ao.with_option(ao.text_option("name", "second")))
-  assert match ao.resolve(duplicate_commands, []) {
-    Err(error) -> ao.error_message(error) == "invalid Ao application: duplicate command name or alias `shared`"
+  let duplicate_commands = cli.app("bad", "bad") |> cli.add_command(cli.command("one", "one", noop) |> cli.command_alias("shared")) |> cli.add_command(cli.command("two", "two", noop) |> cli.command_alias("shared"))
+  let duplicate_options = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.text_option("name", "first")) |> cli.with_option(cli.text_option("name", "second")))
+  assert match cli.resolve(duplicate_commands, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: duplicate command name or alias `shared`"
     _ -> false
   }
-  assert match ao.resolve(duplicate_options, []) {
-    Err(error) -> ao.error_message(error) == "invalid Ao application: command `run`: duplicate option `--name`"
+  assert match cli.resolve(duplicate_options, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: duplicate option `--name`"
     _ -> false
   }
 }
 
 test "a default command handles argv without an explicit command name" {
-  let application = ao.app("echo", "echo") |> ao.add_command(ao.command("say", "say", noop) |> ao.with_argument(ao.optional_argument("TEXT", "text"))) |> ao.default_command("say")
-  assert match ao.resolve(application, ["hello"]) {
-    Ok(Invoke(_, context)) -> ao.argument(context, "TEXT") == Some("hello")
+  let application = cli.app("echo", "echo") |> cli.add_command(cli.command("say", "say", noop) |> cli.with_argument(cli.optional_argument("TEXT", "text"))) |> cli.default_command("say")
+  assert match cli.resolve(application, ["hello"]) {
+    Ok(Invoke(_, context)) -> cli.argument(context, "TEXT") == Some("hello")
     _ -> false
   }
-  assert match ao.resolve(application, []) {
-    Ok(Invoke(_, context)) -> ao.argument(context, "TEXT") == None
+  assert match cli.resolve(application, []) {
+    Ok(Invoke(_, context)) -> cli.argument(context, "TEXT") == None
     _ -> false
   }
 }

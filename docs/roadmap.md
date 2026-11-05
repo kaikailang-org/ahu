@@ -198,6 +198,17 @@ Two configuration sources, adopted from Miguel Michelson's
   YAML into one record. Decide once real consumers show what shape
   of config they want.
 
+### CLI (state: **shipped**, ahu/cli.kai + ahu/cli/actions.kai)
+
+Declarative command-line applications, adopted from Miguel
+Michelson's `ao` package with its history:
+
+- `ahu.cli` builds an immutable `App[e]` of typed commands,
+  arguments, and options; resolves argv purely; and generates help
+  and version output. Spec: `docs/cli.md`.
+- `ahu.cli.actions` adds interactive prompts and conflict-aware file,
+  directory, injection, and template actions.
+
 ### Reference applications (state: **partial**)
 
 Shipped in `examples/`: `demo` (the full stack end-to-end — a

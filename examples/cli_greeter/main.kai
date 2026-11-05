@@ -1,12 +1,12 @@
-import ao
+import ahu.cli
 
-fn greet(context: ao.Context) : Result[Unit, String] / Stdout = match ao.argument(context, "NAME") {
+fn greet(context: cli.Context) : Result[Unit, String] / Stdout = match cli.argument(context, "NAME") {
   None -> Err("missing NAME")
   Some(name) -> {
-    let greeting = option.unwrap_or(ao.text(context, "greeting"), "Hello")
+    let greeting = option.unwrap_or(cli.text(context, "greeting"), "Hello")
     let message = "#{greeting}, #{name}!"
-    Stdout.print(if ao.boolean(context, "loud") {
-      "#{message.to_upper()}\n"
+    Stdout.print(if cli.boolean(context, "loud") {
+      "#{message |> to_upper()}\n"
     } else {
       "#{message}\n"
     })
@@ -15,6 +15,6 @@ fn greet(context: ao.Context) : Result[Unit, String] / Stdout = match ao.argumen
 }
 
 fn main() : Int / Env + Stdout + Stderr {
-  let application = ao.app("greeter", "A small Ao example") |> ao.versioned("0.1.0") |> ao.add_command(ao.command("greet", "Greet one person", greet) |> ao.command_alias("hello") |> ao.with_argument(ao.required_argument("NAME", "Person to greet.")) |> ao.with_option(ao.text_option("greeting", "Words placed before the name.") |> ao.short("g") |> ao.value_name("WORDS")) |> ao.with_option(ao.boolean_option("loud", "Print the greeting in uppercase.") |> ao.short("l")))
-  ao.run(application)
+  let application = cli.app("greeter", "A small ahu.cli example") |> cli.versioned("0.1.0") |> cli.add_command(cli.command("greet", "Greet one person", greet) |> cli.command_alias("hello") |> cli.with_argument(cli.required_argument("NAME", "Person to greet.")) |> cli.with_option(cli.text_option("greeting", "Words placed before the name.") |> cli.short("g") |> cli.value_name("WORDS")) |> cli.with_option(cli.boolean_option("loud", "Print the greeting in uppercase.") |> cli.short("l")))
+  cli.run(application)
 }
