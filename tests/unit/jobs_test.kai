@@ -1,0 +1,93 @@
+import encoding.json
+
+import time
+
+import anga
+
+import anga.adapter
+
+import anga.execution
+
+import anga.job
+
+fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job specification")
+}
+
+fn dispatch(worker: String, arguments: [JsonValue]) : Result[Unit, String] = if (worker == "cleanup") and (arguments == [JStr("guest-1")]) {
+  Ok(())
+} else {
+  Err("unexpected")
+}
+
+test "perform_later materializes and submits through explicit capabilities" {
+  let spec = expect_spec(job.new("cleanup", [JStr("guest-1")]))
+  let result = handle {
+    handle {
+      handle {
+        anga.perform_later(spec)
+      } with Clock {
+        wall_now(resume) -> resume(time.WallTime { secs: 100, nanos: 0 })
+        monotonic_now(resume) -> resume(time.instant_of_nanos(0))
+        sleep_ns(ns, resume) -> {
+          let _ = ns
+          resume(())
+        }
+      }
+    } with SecureRandom {
+      int_range(min, max, resume) -> {
+        let _ = max
+        resume(min)
+      }
+      bytes(n, resume) -> resume(list.take([0..31], n))
+    }
+  } with QueueAdapter {
+    enqueue(value, resume) -> resume(Ok(adapter.receipt("test", job.id(value))))
+    enqueue_at(unexpected_job, unexpected_at, resume) -> {
+      let _ = unexpected_job
+      let _ = unexpected_at
+      resume(Err(AdapterRejected("unexpected")))
+    }
+  }
+  assert match result {
+    Ok(found) -> ((found.receipt.adapter == "test") and (found.receipt.job_id == job.id(found.job))) and (job.enqueued_at(found.job).secs == 100)
+    Err(_) -> false
+  }
+}
+
+test "perform_now materializes and dispatches without QueueAdapter" {
+  let spec = expect_spec(job.new("cleanup", [JStr("guest-1")]))
+  let result = handle {
+    handle {
+      anga.perform_now(spec, dispatch)
+    } with Clock {
+      wall_now(resume) -> resume(time.WallTime { secs: 100, nanos: 0 })
+      monotonic_now(resume) -> resume(time.instant_of_nanos(0))
+      sleep_ns(ns, resume) -> {
+        let _ = ns
+        resume(())
+      }
+    }
+  } with SecureRandom {
+    int_range(min, max, resume) -> {
+      let _ = max
+      resume(min)
+    }
+    bytes(n, resume) -> resume(list.take([0..31], n))
+  }
+  assert match result {
+    Ok(record) -> (execution.succeeded(record) and (execution.failure_message(record) == None)) and (job.executions(record.job) == 1)
+    Err(_) -> false
+  }
+}
+
+test "execution accessors expose worker failures without external pattern matching" {
+  let value = match job.materialize_with(expect_spec(job.new("broken", [])), "job-failed", time.WallTime { secs: 100, nanos: 0 }) {
+    Err(_error) -> panic("expected valid job")
+    Ok(found) -> found
+  }
+  let record = execution.perform(value, (_worker, _arguments) => Err("boom"))
+  assert not execution.succeeded(record)
+  assert execution.failure_message(record) == Some("boom")
+}

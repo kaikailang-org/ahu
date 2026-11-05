@@ -1,0 +1,198 @@
+import encoding.json
+
+import time
+
+import anga
+
+import anga.adapter
+
+import anga.execution
+
+import anga.job
+
+import anga.adapters.memory
+
+fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 0 }
+
+fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job specification")
+}
+
+fn expect_job(value: Result[job.Job, job.JobError]) : job.Job = match value {
+  Ok(found) -> found
+  Err(_) -> panic("expected valid job")
+}
+
+fn expect_pop(value: Option[memory.Pop]) : memory.Pop = match value {
+  Some(found) -> found
+  None -> panic("expected a ready job")
+}
+
+fn expect_record(value: Option[execution.Record]) : execution.Record = match value {
+  Some(found) -> found
+  None -> panic("expected an execution record")
+}
+
+fn make_job(id: String, worker: String, queue: String, priority: Int, due: Option[time.WallTime]) : job.Job {
+  let base = expect_spec(job.new(worker, [JStr(id)]))
+  let queued = expect_spec(job.on_queue(base, queue))
+  let configured = expect_spec(job.with_priority(queued, priority))
+  let scheduled = match due {
+    None -> configured
+    Some(at) -> job.wait_until(configured, at)
+  }
+  expect_job(job.materialize_with(scheduled, id, wall(100)))
+}
+
+fn enqueue_all(state: memory.State, values: [job.Job]) : memory.State {
+  let run = memory.with_adapter(state, () => {
+    let _ = adapter.submit_all(values)
+    ()
+  })
+  run.state
+}
+
+test "memory installs the QueueAdapter contract without global state" {
+  let first = make_job("one", "cleanup", "default", 0, None)
+  let second = make_job("two", "cleanup", "mailers", 0, Some(wall(200)))
+  let run = memory.with_adapter(memory.empty(), () => {
+    let a = adapter.submit(first)
+    let b = adapter.submit(second)
+    Pair { fst: a, snd: b }
+  })
+  assert memory.size(run.state) == 2
+  assert match run.value.fst {
+    Ok(found) -> found.job_id == "one"
+    Err(_) -> false
+  }
+  assert match run.value.snd {
+    Ok(found) -> found.job_id == "two"
+    Err(_) -> false
+  }
+}
+
+test "memory handler preserves the body's other explicit effects" {
+  let spec = expect_spec(job.new("cleanup", [JStr("guest-1")]))
+  let run = handle {
+    handle {
+      memory.with_adapter(memory.empty(), () => anga.perform_later(spec))
+    } with Clock {
+      wall_now(resume) -> resume(wall(100))
+      monotonic_now(resume) -> resume(time.instant_of_nanos(0))
+      sleep_ns(ns, resume) -> {
+        let _ = ns
+        resume(())
+      }
+    }
+  } with SecureRandom {
+    int_range(min, max, resume) -> {
+      let _ = max
+      resume(min)
+    }
+    bytes(n, resume) -> resume(list.take([0..31], n))
+  }
+  assert match run.value {
+    Ok(_) -> true
+    Err(_) -> false
+  }
+  assert memory.size(run.state) == 1
+}
+
+test "memory rejects duplicate job ids without changing state" {
+  let value = make_job("same", "cleanup", "default", 0, None)
+  let run = memory.with_adapter(memory.empty(), () => {
+    let first = adapter.submit(value)
+    let second = adapter.submit(value)
+    Pair { fst: first, snd: second }
+  })
+  assert match run.value.fst {
+    Ok(_) -> true
+    Err(_) -> false
+  }
+  assert match run.value.snd {
+    Err(AdapterRejected(message)) -> message == "duplicate job id: same"
+    _ -> false
+  }
+  assert memory.size(run.state) == 1
+}
+
+test "memory rejects an invalid adapter due time" {
+  let value = make_job("bad-time", "cleanup", "default", 0, None)
+  let invalid = time.WallTime { secs: 100, nanos: 1_000_000_000 }
+  assert match memory.insert(memory.empty(), value, invalid) {
+    Err(AdapterRejected(message)) -> message == "invalid due timestamp"
+    _ -> false
+  }
+}
+
+test "ready selection uses lower priority then FIFO" {
+  let low = make_job("low", "cleanup", "default", 20, None)
+  let first_high = make_job("high-1", "cleanup", "default", 1, None)
+  let second_high = make_job("high-2", "cleanup", "default", 1, None)
+  let state = enqueue_all(memory.empty(), [low, first_high, second_high])
+  let pop1 = expect_pop(memory.pop_ready(state, wall(100), []))
+  let pop2 = expect_pop(memory.pop_ready(pop1.state, wall(100), []))
+  let pop3 = expect_pop(memory.pop_ready(pop2.state, wall(100), []))
+  assert job.id(pop1.job) == "high-1"
+  assert job.id(pop2.job) == "high-2"
+  assert job.id(pop3.job) == "low"
+}
+
+test "scheduled and named queues are respected" {
+  let ready = make_job("ready", "cleanup", "mailers", 0, None)
+  let future = make_job("future", "cleanup", "mailers", 0, Some(wall(200)))
+  let other = make_job("other", "cleanup", "reports", 0, None)
+  let state = enqueue_all(memory.empty(), [future, other, ready])
+  let mail = expect_pop(memory.pop_ready(state, wall(150), ["mailers"]))
+  assert job.id(mail.job) == "ready"
+  assert match memory.pop_ready(mail.state, wall(150), ["mailers"]) {
+    None -> true
+    Some(_) -> false
+  }
+  let due = expect_pop(memory.pop_ready(mail.state, wall(200), ["mailers"]))
+  assert job.id(due.job) == "future"
+  let reports = expect_pop(memory.pop_ready(due.state, wall(200), ["reports"]))
+  assert job.id(reports.job) == "other"
+}
+
+fn dispatch(worker: String, _arguments: [JsonValue]) : Result[Unit, String] = if worker == "ok" {
+  Ok(())
+} else {
+  Err("worker failed")
+}
+
+test "perform_next records successful and failed executions" {
+  let ok_job = make_job("ok-1", "ok", "default", 0, None)
+  let bad_job = make_job("bad-1", "bad", "default", 1, None)
+  let state = enqueue_all(memory.empty(), [bad_job, ok_job])
+  let step1 = memory.perform_next(state, wall(100), [], dispatch)
+  let first = expect_record(step1.record)
+  assert match first.outcome {
+    Succeeded -> true
+    Failed(_) -> false
+  }
+  assert job.executions(first.job) == 1
+  let step2 = memory.perform_next(step1.state, wall(100), [], dispatch)
+  let second = expect_record(step2.record)
+  assert match second.outcome {
+    Failed(message) -> message == "worker failed"
+    Succeeded -> false
+  }
+  assert memory.size(step2.state) == 0
+  assert list_length(memory.performed(step2.state)) == 2
+}
+
+test "drain_ready consumes all currently eligible jobs" {
+  let one = make_job("one", "ok", "default", 0, None)
+  let two = make_job("two", "ok", "default", 0, None)
+  let future = make_job("future", "ok", "default", 0, Some(wall(200)))
+  let state = enqueue_all(memory.empty(), [one, future, two])
+  let drained = memory.drain_ready(state, wall(150), [], dispatch)
+  assert memory.size(drained) == 1
+  assert list_length(memory.performed(drained)) == 2
+  assert match memory.pending(drained) {
+    [remaining] -> job.id(remaining) == "future"
+    _ -> false
+  }
+}

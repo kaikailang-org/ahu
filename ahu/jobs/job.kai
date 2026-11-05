@@ -1,0 +1,135 @@
+#[doc("Validated, serializable job specifications and materialized jobs.")]
+
+import encoding.hex
+
+import encoding.json
+
+import time
+
+#[doc("When a job becomes eligible for execution.")]
+pub type Schedule
+  = Immediate
+  | At(time.WallTime)
+
+#[doc("A recoverable violation of a job invariant.")]
+pub type JobError
+  = InvalidWorkerName(String)
+  | InvalidQueueName(String)
+  | InvalidPriority(Int)
+  | InvalidDelay
+  | InvalidJobId
+  | InvalidTimestamp(String)
+  | InvalidExecutionCount
+
+#[doc("A validated job description before identity and enqueue time are assigned.")]
+pub type Spec = { priv worker_value: String, priv arguments_value: [JsonValue], priv queue_value: String, priv priority_value: Int, priv schedule_value: Schedule }
+
+#[doc("The immutable document exchanged with queue adapters.")]
+pub type Job = { priv id_value: String, priv worker_value: String, priv arguments_value: [JsonValue], priv queue_value: String, priv priority_value: Int, priv enqueued_at_value: time.WallTime, priv scheduled_at_value: Option[time.WallTime], priv executions_value: Int }
+
+fn valid_name_chars(chars: [Char]) : Bool = match chars {
+  [] -> true
+  [c, ...rest] -> if ((char.is_alnum(c) or (c == '_')) or (c == '-')) or (c == '.') {
+    valid_name_chars(rest)
+  } else {
+    false
+  }
+}
+
+fn valid_name(value: String) : Bool = (not string.is_blank(value)) and valid_name_chars(string.chars(value))
+
+fn valid_walltime(value: time.WallTime) : Bool = (value.nanos >= 0) and (value.nanos < 1_000_000_000)
+
+fn schedule_to_option(value: Schedule) : Option[time.WallTime] = match value {
+  Immediate -> None
+  At(at) -> Some(at)
+}
+
+#[doc("Creates a job specification on the default queue with priority zero.")]
+pub fn new(worker: String, arguments: [JsonValue]) : Result[Spec, JobError] = if valid_name(worker) {
+  Ok(Spec { worker_value: worker, arguments_value: arguments, queue_value: "default", priority_value: 0, schedule_value: Immediate })
+} else {
+  Err(InvalidWorkerName(worker))
+}
+
+#[doc("Returns a specification configured for a validated queue name.")]
+pub fn on_queue(value: Spec, queue: String) : Result[Spec, JobError] = if valid_name(queue) {
+  Ok(Spec { worker_value: value.worker_value, arguments_value: value.arguments_value, queue_value: queue, priority_value: value.priority_value, schedule_value: value.schedule_value })
+} else {
+  Err(InvalidQueueName(queue))
+}
+
+#[doc("Sets a non-negative priority; lower integers are more important.")]
+pub fn with_priority(value: Spec, priority: Int) : Result[Spec, JobError] = if priority < 0 {
+  Err(InvalidPriority(priority))
+} else {
+  Ok(Spec { worker_value: value.worker_value, arguments_value: value.arguments_value, queue_value: value.queue_value, priority_value: priority, schedule_value: value.schedule_value })
+}
+
+#[doc("Schedules a specification for an absolute wall-clock time.")]
+pub fn wait_until(value: Spec, at: time.WallTime) : Spec = Spec { worker_value: value.worker_value, arguments_value: value.arguments_value, queue_value: value.queue_value, priority_value: value.priority_value, schedule_value: At(at) }
+
+#[doc("Schedules relative to an explicit base time; negative delays are rejected.")]
+pub fn wait_for(value: Spec, delay: time.Duration, from: time.WallTime) : Result[Spec, JobError] = if time.duration_to_nanos(delay) < 0 {
+  Err(InvalidDelay)
+} else {
+  Ok(wait_until(value, time.walltime_add_duration(from, delay)))
+}
+
+#[doc("Materializes a validated specification with deterministic metadata.")]
+pub fn materialize_with(value: Spec, id: String, enqueued_at: time.WallTime) : Result[Job, JobError] = restore(id, value.worker_value, value.arguments_value, value.queue_value, value.priority_value, enqueued_at, schedule_to_option(value.schedule_value), 0)
+
+#[doc("Assigns a fresh collision-resistant ID and captures the current wall time.")]
+pub fn materialize(value: Spec) : Result[Job, JobError] / Clock + SecureRandom {
+  let id = "anga_#{hex.encode(SecureRandom.bytes(16))}"
+  materialize_with(value, id, time.now())
+}
+
+#[doc("Restores a persisted job while rechecking every stable invariant.")]
+pub fn restore(id: String, worker: String, arguments: [JsonValue], queue: String, priority: Int, enqueued_at: time.WallTime, scheduled_at: Option[time.WallTime], executions: Int) : Result[Job, JobError] = if not valid_name(id) {
+  Err(InvalidJobId)
+} else if not valid_name(worker) {
+  Err(InvalidWorkerName(worker))
+} else if not valid_name(queue) {
+  Err(InvalidQueueName(queue))
+} else if priority < 0 {
+  Err(InvalidPriority(priority))
+} else if not valid_walltime(enqueued_at) {
+  Err(InvalidTimestamp("enqueued_at"))
+} else if match scheduled_at {
+  Some(at) -> not valid_walltime(at)
+  None -> false
+} {
+  Err(InvalidTimestamp("scheduled_at"))
+} else if executions < 0 {
+  Err(InvalidExecutionCount)
+} else {
+  Ok(Job { id_value: id, worker_value: worker, arguments_value: arguments, queue_value: queue, priority_value: priority, enqueued_at_value: enqueued_at, scheduled_at_value: scheduled_at, executions_value: executions })
+}
+
+#[doc("Returns the stable job identifier.")]
+pub fn id(value: Job) : String = value.id_value
+
+#[doc("Returns the application worker name.")]
+pub fn worker(value: Job) : String = value.worker_value
+
+#[doc("Returns the serializable worker arguments.")]
+pub fn arguments(value: Job) : [JsonValue] = value.arguments_value
+
+#[doc("Returns the queue name.")]
+pub fn queue_name(value: Job) : String = value.queue_value
+
+#[doc("Returns the numeric priority; lower means more important.")]
+pub fn priority(value: Job) : Int = value.priority_value
+
+#[doc("Returns when the job entered the adapter.")]
+pub fn enqueued_at(value: Job) : time.WallTime = value.enqueued_at_value
+
+#[doc("Returns the optional absolute schedule.")]
+pub fn scheduled_at(value: Job) : Option[time.WallTime] = value.scheduled_at_value
+
+#[doc("Returns how many executions have been attempted.")]
+pub fn executions(value: Job) : Int = value.executions_value
+
+#[doc("Returns the same job with its execution count incremented.")]
+pub fn advance_execution(value: Job) : Job = Job { id_value: value.id_value, worker_value: value.worker_value, arguments_value: value.arguments_value, queue_value: value.queue_value, priority_value: value.priority_value, enqueued_at_value: value.enqueued_at_value, scheduled_at_value: value.scheduled_at_value, executions_value: value.executions_value + 1 }

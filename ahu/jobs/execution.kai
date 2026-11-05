@@ -1,0 +1,35 @@
+#[doc("Explicit job execution through an application-supplied dispatcher.")]
+
+import encoding.json
+
+import anga.job as anga_execution_job
+
+#[doc("The result of one worker invocation.")]
+pub type Outcome
+  = Succeeded
+  | Failed(String)
+
+#[doc("One attempted execution and its immutable outcome.")]
+pub type Record = { job: anga_execution_job.Job, outcome: Outcome }
+
+#[doc("True when an execution record completed without a worker error.")]
+pub fn succeeded(value: Record) : Bool = match value.outcome {
+  Succeeded -> true
+  Failed(_message) -> false
+}
+
+#[doc("Returns the worker failure message, or None after a successful execution.")]
+pub fn failure_message(value: Record) : Option[String] = match value.outcome {
+  Succeeded -> None
+  Failed(message) -> Some(message)
+}
+
+#[doc("Runs one job without reflection and records the attempted execution.")]
+pub fn perform[e](value: anga_execution_job.Job, dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Record / e {
+  let attempted = anga_execution_job.advance_execution(value)
+  let outcome = match dispatch(anga_execution_job.worker(attempted), anga_execution_job.arguments(attempted)) {
+    Ok(_) -> Succeeded
+    Err(message) -> Failed(message)
+  }
+  Record { job: attempted, outcome: outcome }
+}

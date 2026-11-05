@@ -1,0 +1,132 @@
+#[doc("Deterministic, ephemeral in-memory queue adapter.")]
+
+import encoding.json
+
+import time
+
+import anga.adapter
+
+import anga.execution
+
+import anga.job
+
+type Pending = { job: job.Job, due: time.WallTime, sequence: Int }
+
+#[doc("Immutable pending and execution history for the memory adapter.")]
+pub type State = { priv pending_entries: [Pending], priv performed_entries: [execution.Record], priv next_sequence: Int }
+
+#[doc("A handled computation paired with the resulting memory state.")]
+pub type Run[T] = { value: T, state: State }
+
+#[doc("A ready job removed from a resulting memory state.")]
+pub type Pop = { job: job.Job, state: State }
+
+#[doc("The result of attempting one ready execution.")]
+pub type Step = { state: State, record: Option[execution.Record] }
+
+#[doc("Creates an empty in-memory adapter state.")]
+pub fn empty() : State = State { pending_entries: [], performed_entries: [], next_sequence: 0 }
+
+#[doc("Returns the number of jobs still pending.")]
+pub fn size(value: State) : Int = list_length(value.pending_entries)
+
+#[doc("Returns pending jobs in insertion order.")]
+pub fn pending(value: State) : [job.Job] = list.map(list.sort_by(value.pending_entries, compare_sequence), entry => entry.job)
+
+#[doc("Returns completed execution records in execution order.")]
+pub fn performed(value: State) : [execution.Record] = value.performed_entries
+
+fn compare_int(a: Int, b: Int) : Int = if a < b {
+  -1
+} else if a > b {
+  1
+} else {
+  0
+}
+
+fn compare_sequence(a: Pending, b: Pending) : Int = compare_int(a.sequence, b.sequence)
+
+fn has_pending_id(values: [Pending], wanted: String) : Bool = list.any(values, entry => job.id(entry.job) == wanted)
+
+fn has_performed_id(values: [execution.Record], wanted: String) : Bool = list.any(values, record => job.id(record.job) == wanted)
+
+#[doc("Adds one job with an explicit due time, rejecting duplicate job IDs.")]
+pub fn insert(value: State, item: job.Job, due: time.WallTime) : Result[State, AdapterError] = if has_pending_id(value.pending_entries, job.id(item)) or has_performed_id(value.performed_entries, job.id(item)) {
+  Err(AdapterRejected("duplicate job id: #{job.id(item)}"))
+} else if (due.nanos < 0) or (due.nanos >= 1_000_000_000) {
+  Err(AdapterRejected("invalid due timestamp"))
+} else {
+  Ok(State { pending_entries: [Pending { job: item, due: due, sequence: value.next_sequence }, ...value.pending_entries], performed_entries: value.performed_entries, next_sequence: value.next_sequence + 1 })
+}
+
+fn append_performed(value: State, record: execution.Record) : State = State { pending_entries: value.pending_entries, performed_entries: list_append(value.performed_entries, [record]), next_sequence: value.next_sequence }
+
+#[doc("Installs the memory state as a lexical QueueAdapter handler.")]
+pub fn with_adapter[T, e](initial: State, body: () -> T / QueueAdapter + e) : Run[T] / e = handle {
+  body()
+} with QueueAdapter(initial) {
+  enqueue(value, resume) -> {
+    match insert(state, value, job.enqueued_at(value)) {
+      Ok(next) -> resume(Ok(adapter.receipt("memory", job.id(value))), next)
+      Err(error) -> resume(Err(error), state)
+    }
+  }
+  enqueue_at(value, at, resume) -> {
+    match insert(state, value, at) {
+      Ok(next) -> resume(Ok(adapter.receipt("memory", job.id(value))), next)
+      Err(error) -> resume(Err(error), state)
+    }
+  }
+  return(value) -> Run { value: value, state: state }
+}
+
+fn wall_lte(a: time.WallTime, b: time.WallTime) : Bool = time.walltime_lt(a, b) or time.walltime_eq(a, b)
+
+fn queue_selected(value: job.Job, queues: [String]) : Bool = list.is_empty(queues) or list.contains(queues, job.queue_name(value))
+
+fn eligible(entry: Pending, now: time.WallTime, queues: [String]) : Bool = wall_lte(entry.due, now) and queue_selected(entry.job, queues)
+
+fn compare_ready(a: Pending, b: Pending) : Int {
+  let priority_order = compare_int(job.priority(a.job), job.priority(b.job))
+  if priority_order == 0 {
+    compare_int(a.sequence, b.sequence)
+  } else {
+    priority_order
+  }
+}
+
+fn remove_sequence(values: [Pending], sequence: Int) : [Pending] = match values {
+  [] -> []
+  [entry, ...rest] -> if entry.sequence == sequence {
+    rest
+  } else {
+    [entry, ...remove_sequence(rest, sequence)]
+  }
+}
+
+#[doc("Removes the highest-priority ready job, FIFO among equal priorities.")]
+pub fn pop_ready(value: State, now: time.WallTime, queues: [String]) : Option[Pop] {
+  let ready = list.filter(value.pending_entries, entry => eligible(entry, now, queues)) |> list.sort_by(compare_ready)
+  match ready {
+    [] -> None
+    [selected, ..._] -> Some(Pop { job: selected.job, state: State { pending_entries: remove_sequence(value.pending_entries, selected.sequence), performed_entries: value.performed_entries, next_sequence: value.next_sequence } })
+  }
+}
+
+#[doc("Performs at most one ready job and records its outcome.")]
+pub fn perform_next[e](value: State, now: time.WallTime, queues: [String], dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : Step / e = match pop_ready(value, now, queues) {
+  None -> Step { state: value, record: None }
+  Some(found) -> {
+    let record = execution.perform(found.job, dispatch)
+    Step { state: append_performed(found.state, record), record: Some(record) }
+  }
+}
+
+#[doc("Performs every job ready at `now`, retaining future and unselected jobs.")]
+pub fn drain_ready[e](value: State, now: time.WallTime, queues: [String], dispatch: (String, [JsonValue]) -> Result[Unit, String] / e) : State / e {
+  let step = perform_next(value, now, queues, dispatch)
+  match step.record {
+    None -> step.state
+    Some(_) -> drain_ready(step.state, now, queues, dispatch)
+  }
+}
