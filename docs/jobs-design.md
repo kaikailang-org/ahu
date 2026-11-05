@@ -1,6 +1,6 @@
-# Anga 0.1 design
+# ahu.jobs design
 
-Anga is the background-job contract for Kaikai and Manutara applications. It
+`ahu.jobs` is the background-job contract for ahu applications, Manutara included. It
 takes Active Job's separation between job definition and operational backend,
 but expresses that separation with immutable data, `Result`, functions, and
 explicit effects.
@@ -11,7 +11,7 @@ explicit effects.
   and optional execution time.
 - The application can enqueue immediately, enqueue for a date, or enqueue a
   batch without knowing the backend.
-- An adapter implements only Anga's stable contract.
+- An adapter implements only the stable `ahu.jobs` contract.
 - The first adapter keeps jobs in memory for development and testing.
 - Execution does not use reflection: the application supplies an explicit
   dispatcher.
@@ -25,22 +25,22 @@ processes, and distributed guarantees are not goals for 0.1.
 Manutara controller / domain / Tuku
                 │
                 ▼
-          anga.perform_later
+          jobs.perform_later
                 │
      Clock + SecureRandom + QueueAdapter
                 │
                 ▼
-          anga.adapter contract
+          ahu.jobs.adapter contract
              enqueue(job)
           enqueue_at(job, at)
                 │
                 ▼
-       anga.adapters.memory.State
+       ahu.jobs.adapters.memory.State
                 │
          pop_ready(now, queues)
                 │
                 ▼
-       anga.execution.perform(job, dispatch)
+       ahu.jobs.execution.perform(job, dispatch)
 ```
 
 Dependencies point toward pure values. The core does not import Manutara, and
@@ -88,7 +88,7 @@ pub effect QueueAdapter {
 ```
 
 This is the same conceptual minimum as Active Job's `AbstractAdapter`.
-Additional capabilities belong to the adapter. `submit_all` is an Anga helper
+Additional capabilities belong to the adapter. `submit_all` is an `ahu.jobs` helper
 that degrades correctly to individual calls, so it does not require every
 backend to implement a bulk operation.
 
@@ -126,7 +126,7 @@ for production.
 
 ## Codec
 
-`anga.codec` converts a `Job` to canonical `JsonValue` and restores it while
+`ahu.jobs.codec` converts a `Job` to canonical `JsonValue` and restores it while
 validating the complete document. A future persistent adapter will reuse this
 format instead of inventing an incompatible representation.
 
@@ -146,7 +146,7 @@ value.
 fn create_report(ctx: context.Context) : Response / Clock + SecureRandom + QueueAdapter =
   match job.new("reports.generate", [JStr(context.url(ctx))]) {
     Err(_) -> response.bad_request("invalid job")
-    Ok(spec) -> match anga.perform_later(spec) {
+    Ok(spec) -> match jobs.perform_later(spec) {
       Err(_) -> response.with_status(response.text("queue unavailable"), 503)
       Ok(_) -> response.with_status(response.text("queued"), 202)
     }
@@ -162,12 +162,12 @@ so moving from memory to a durable backend does not change the controller.
 - contract tests with deterministic handlers;
 - priority, FIFO, queue-selection, and execution tests;
 - codec round-trip and rejection tests;
-- canonical formatting, typechecking, linting, and public documentation.
+- typechecking of every module and fixture through `make tier1`.
 
 ## Evolution
 
-1. 0.1: contract, codec, and deterministic in-memory adapter.
-2. 0.2: retry/backoff policies and observable hooks represented as effects.
-3. 0.3: supervised workers and a durable adapter.
+1. Shipped: contract, codec, and deterministic in-memory adapter.
+2. Next: retry/backoff policies and observable hooks represented as effects.
+3. Then: supervised workers; the durable adapter lives with Manutara.
 4. Future: native bulk operations, cron, uniqueness, locks, and continuations
    as optional capabilities rather than assumptions in the minimum contract.

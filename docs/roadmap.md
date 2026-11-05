@@ -209,6 +209,21 @@ Michelson's `ao` package with its history:
 - `ahu.cli.actions` adds interactive prompts and conflict-aware file,
   directory, injection, and template actions.
 
+### Jobs (state: **shipped**, ahu/jobs.kai + ahu/jobs/)
+
+Background jobs, adopted from Miguel Michelson's `anga` package
+with its history. Jobs are validated values with JSON arguments;
+the backend is a `QueueAdapter` effect installed at the
+composition root, so code that enqueues never names it. The core
+ships a canonical JSON codec and a deterministic in-memory
+adapter. Spec: `docs/jobs.md`, `docs/jobs-design.md`.
+
+**Possible follow-ups**:
+
+- **Retry/backoff policies and observable hooks** as effects.
+- **Supervised workers**, likely on the Pool helper below. The
+  durable SQLite adapter lives with Manutara, not in ahu.
+
 ### Reference applications (state: **partial**)
 
 Shipped in `examples/`: `demo` (the full stack end-to-end — a

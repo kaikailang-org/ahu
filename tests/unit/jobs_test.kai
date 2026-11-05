@@ -1,14 +1,14 @@
-import encoding.json
+import encoding.json_bind.{JsonValue, JStr}
 
 import time
 
-import anga
+import ahu.jobs
 
-import anga.adapter
+import ahu.jobs.adapter
 
-import anga.execution
+import ahu.jobs.execution
 
-import anga.job
+import ahu.jobs.job
 
 fn expect_spec(value: Result[job.Spec, job.JobError]) : job.Spec = match value {
   Ok(found) -> found
@@ -26,7 +26,7 @@ test "perform_later materializes and submits through explicit capabilities" {
   let result = handle {
     handle {
       handle {
-        anga.perform_later(spec)
+        jobs.perform_later(spec)
       } with Clock {
         wall_now(resume) -> resume(time.WallTime { secs: 100, nanos: 0 })
         monotonic_now(resume) -> resume(time.instant_of_nanos(0))
@@ -60,7 +60,7 @@ test "perform_now materializes and dispatches without QueueAdapter" {
   let spec = expect_spec(job.new("cleanup", [JStr("guest-1")]))
   let result = handle {
     handle {
-      anga.perform_now(spec, dispatch)
+      jobs.perform_now(spec, dispatch)
     } with Clock {
       wall_now(resume) -> resume(time.WallTime { secs: 100, nanos: 0 })
       monotonic_now(resume) -> resume(time.instant_of_nanos(0))

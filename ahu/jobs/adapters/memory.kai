@@ -2,13 +2,15 @@
 
 import encoding.json
 
+import encoding.json_bind.{JsonValue}
+
 import time
 
-import anga.adapter
+import ahu.jobs.adapter
 
-import anga.execution
+import ahu.jobs.execution
 
-import anga.job
+import ahu.jobs.job
 
 type Pending = { job: job.Job, due: time.WallTime, sequence: Int }
 
@@ -16,7 +18,7 @@ type Pending = { job: job.Job, due: time.WallTime, sequence: Int }
 pub type State = { priv pending_entries: [Pending], priv performed_entries: [execution.Record], priv next_sequence: Int }
 
 #[doc("A handled computation paired with the resulting memory state.")]
-pub type Run[T] = { value: T, state: State }
+pub type Run[t] = { value: t, state: State }
 
 #[doc("A ready job removed from a resulting memory state.")]
 pub type Pop = { job: job.Job, state: State }
@@ -62,7 +64,7 @@ pub fn insert(value: State, item: job.Job, due: time.WallTime) : Result[State, A
 fn append_performed(value: State, record: execution.Record) : State = State { pending_entries: value.pending_entries, performed_entries: list_append(value.performed_entries, [record]), next_sequence: value.next_sequence }
 
 #[doc("Installs the memory state as a lexical QueueAdapter handler.")]
-pub fn with_adapter[T, e](initial: State, body: () -> T / QueueAdapter + e) : Run[T] / e = handle {
+pub fn with_adapter[t, e](initial: State, body: () -> t / QueueAdapter + e) : Run[t] / e = handle {
   body()
 } with QueueAdapter(initial) {
   enqueue(value, resume) -> {

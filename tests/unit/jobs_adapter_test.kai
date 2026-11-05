@@ -1,10 +1,12 @@
 import encoding.json
 
+import encoding.json_bind.{JStr}
+
 import time
 
-import anga.adapter
+import ahu.jobs.adapter
 
-import anga.job
+import ahu.jobs.job
 
 fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 0 }
 

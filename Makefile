@@ -46,7 +46,7 @@ TEST_BINS      = $(addprefix $(BUILD)/,$(TEST_NAMES))
 EXAMPLE_BINS   = $(addprefix $(BUILD)/,$(EXAMPLE_NAMES))
 ALL_BINS       = $(TEST_BINS) $(EXAMPLE_BINS)
 
-AHU_SRC = $(wildcard ahu/*.kai ahu/*/*.kai)
+AHU_SRC = $(wildcard ahu/*.kai ahu/*/*.kai ahu/*/*/*.kai)
 
 .PHONY: tier0 tier1 tier1-fixtures tier1-unit clean
 

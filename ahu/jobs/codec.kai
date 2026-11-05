@@ -1,15 +1,17 @@
-#[doc("Canonical JSON document codec for Anga jobs.")]
+#[doc("Canonical JSON document codec for background jobs.")]
 
 import encoding.json
 
+import encoding.json_bind.{JsonValue, JNull, JNum, JStr, JArr, JObj}
+
 import time
 
-import anga.job as anga_codec_job
+import ahu.jobs.job as jobs_codec_job
 
 #[doc("Why a queue document could not be restored.")]
 pub type CodecError
   = InvalidDocument(String)
-  | InvalidJob(anga_codec_job.JobError)
+  | InvalidJob(jobs_codec_job.JobError)
 
 fn field(value: JsonValue, name: String) : JsonValue = match value {
   JObj(pairs) -> match list.find(pairs, pair => pair.fst == name) {
@@ -59,10 +61,10 @@ fn decode_schedule(value: JsonValue) : Result[Option[time.WallTime], CodecError]
 }
 
 #[doc("Encodes a job as the canonical JSON object shared by adapters.")]
-pub fn encode(value: anga_codec_job.Job) : JsonValue = JObj([Pair { fst: "id", snd: JStr(anga_codec_job.id(value)) }, Pair { fst: "worker", snd: JStr(anga_codec_job.worker(value)) }, Pair { fst: "arguments", snd: JArr(anga_codec_job.arguments(value)) }, Pair { fst: "queue", snd: JStr(anga_codec_job.queue_name(value)) }, Pair { fst: "priority", snd: JNum(anga_codec_job.priority(value)) }, Pair { fst: "enqueued_at", snd: encode_walltime(anga_codec_job.enqueued_at(value)) }, Pair { fst: "scheduled_at", snd: encode_schedule(anga_codec_job.scheduled_at(value)) }, Pair { fst: "executions", snd: JNum(anga_codec_job.executions(value)) }])
+pub fn encode(value: jobs_codec_job.Job) : JsonValue = JObj([Pair { fst: "id", snd: JStr(jobs_codec_job.id(value)) }, Pair { fst: "worker", snd: JStr(jobs_codec_job.worker(value)) }, Pair { fst: "arguments", snd: JArr(jobs_codec_job.arguments(value)) }, Pair { fst: "queue", snd: JStr(jobs_codec_job.queue_name(value)) }, Pair { fst: "priority", snd: JNum(jobs_codec_job.priority(value)) }, Pair { fst: "enqueued_at", snd: encode_walltime(jobs_codec_job.enqueued_at(value)) }, Pair { fst: "scheduled_at", snd: encode_schedule(jobs_codec_job.scheduled_at(value)) }, Pair { fst: "executions", snd: JNum(jobs_codec_job.executions(value)) }])
 
 #[doc("Decodes and validates a canonical queue document.")]
-pub fn decode(value: JsonValue) : Result[anga_codec_job.Job, CodecError] = match value {
+pub fn decode(value: JsonValue) : Result[jobs_codec_job.Job, CodecError] = match value {
   JObj(_) -> {
     let id = read_string(value, "id")!
     let worker = read_string(value, "worker")!
@@ -72,7 +74,7 @@ pub fn decode(value: JsonValue) : Result[anga_codec_job.Job, CodecError] = match
     let enqueued_at = decode_walltime(field(value, "enqueued_at"), "enqueued_at")!
     let scheduled_at = decode_schedule(field(value, "scheduled_at"))!
     let executions = read_int(value, "executions")!
-    match anga_codec_job.restore(id, worker, arguments, queue, priority, enqueued_at, scheduled_at, executions) {
+    match jobs_codec_job.restore(id, worker, arguments, queue, priority, enqueued_at, scheduled_at, executions) {
       Ok(found) -> Ok(found)
       Err(error) -> Err(InvalidJob(error))
     }

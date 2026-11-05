@@ -1,11 +1,12 @@
-# Anga
+# ahu.jobs
 
-Anga is the background-job library for Kaikai and Manutara. It is inspired by
+`ahu.jobs` is the background-job library for ahu applications, Manutara
+included. It is inspired by
 [Active Job](https://api.rubyonrails.org/classes/ActiveJob.html): it defines a
 stable contract between jobs and queue backends, expressed through immutable
 data, `Result`, explicit dispatch, and Kaikai effects.
 
-Anga 0.1 includes:
+It supports:
 
 - validated `Spec` and `Job` values;
 - portable arguments represented as `[JsonValue]`;
@@ -17,14 +18,14 @@ Anga 0.1 includes:
 - an in-memory adapter with priority, FIFO ordering, queue filters, and history;
 - an explicit dispatcher, without reflection or global configuration.
 
-## Dependency
+## Import
 
-```toml
-[dependencies]
-anga = { path = "../anga" }
+```kai
+import ahu.jobs
+import ahu.jobs.job
 ```
 
-Anga does not depend on Manutara. A web application can import it without
+`ahu.jobs` does not depend on Manutara. A web application can import it without
 coupling the job core to HTTP.
 
 ## Define a job
@@ -33,9 +34,9 @@ A job is an ordinary specification. The worker name is stable, and its
 arguments must be able to cross a JSON boundary:
 
 ```kai
-import encoding.json
+import encoding.json_bind.{JStr}
 
-import anga.job
+import ahu.jobs.job
 
 fn welcome_email(user_id: String) : Result[job.Spec, job.JobError] = {
   let base = job.new("mail.welcome", [JStr(user_id)])!
@@ -53,7 +54,7 @@ Kaikai does not serialize closures or discover modules through reflection. The
 application exhaustively maps a worker name to a function:
 
 ```kai
-import encoding.json
+import encoding.json_bind.{JsonValue}
 
 fn dispatch(worker: String, arguments: [JsonValue]) : Result[Unit, String] / File + Process = match worker {
   "mail.welcome" -> perform_welcome(arguments)
@@ -68,7 +69,7 @@ documents can still run.
 ## Run now
 
 ```kai
-let result = anga.perform_now(spec, dispatch)
+let result = jobs.perform_now(spec, dispatch)
 # Result[execution.Record, job.JobError]
 # / Clock + SecureRandom + dispatcher effects
 ```
@@ -79,16 +80,16 @@ execution counter, and returns `Succeeded` or `Failed(message)` as data.
 ## Enqueue
 
 ```kai
-let queued = anga.perform_later(spec)
-# Result[anga.Enqueued, anga.EnqueueError]
+let queued = jobs.perform_later(spec)
+# Result[jobs.Enqueued, jobs.EnqueueError]
 # / Clock + SecureRandom + QueueAdapter
 ```
 
 For scheduling:
 
 ```kai
-anga.perform_at(spec, time.WallTime { secs: 1_800_000_000, nanos: 0 })
-anga.perform_in(spec, time.minutes(15))
+jobs.perform_at(spec, time.WallTime { secs: 1_800_000_000, nanos: 0 })
+jobs.perform_in(spec, time.minutes(15))
 ```
 
 The function selects `enqueue` or `enqueue_at` based on the `Job`. The backend
@@ -100,11 +101,11 @@ The adapter does not maintain a singleton. It receives state and returns the
 new state:
 
 ```kai
-import anga
-import anga.adapters.memory
+import ahu.jobs
+import ahu.jobs.adapters.memory
 
 let run = memory.with_adapter(memory.empty(), () => {
-  anga.perform_later(spec)
+  jobs.perform_later(spec)
 })
 
 let enqueue_result = run.value
@@ -132,22 +133,22 @@ duplicate IDs are rejected without changing the state.
 | Memory | Lifetime of the retained immutable `memory.State` | The owning process calls `perform_next` or `drain_ready` |
 | Manutara Solid Queue | Durable SQLite rows | A separate polling worker claims and finalizes jobs |
 
-Inline is an application-specific adapter rather than part of Anga's core;
-Manutara Storage provides one that dispatches its analysis and variant workers.
-See its [queue adapter guide](../manutara-storage/docs/queue-adapters.md) for
-complete inline, memory, and Solid wiring. Solid Queue's durable implementation
-is documented in [Manutara Solid Queue](../manutara-solid-queue/README.md).
+Inline is an application-specific adapter rather than part of the `ahu.jobs`
+core; Manutara Storage provides one that dispatches its analysis and variant
+workers. The durable Solid Queue adapter lives with Manutara, because it needs
+SQLite; it installs one more `QueueAdapter` handler and needs nothing else from
+`ahu.jobs`.
 
 ## Manutara
 
 An action declares the effect in its signature; the adapter is irrelevant:
 
 ```kai
-import encoding.json
+import encoding.json_bind.{JStr}
 
-import anga
-import anga.adapter
-import anga.job
+import ahu.jobs
+import ahu.jobs.adapter
+import ahu.jobs.job
 
 import manutara.controller.context
 import manutara.response
@@ -155,7 +156,7 @@ import manutara.response
 fn create_report(ctx: context.Context) : Response / Clock + SecureRandom + QueueAdapter =
   match job.new("reports.generate", [JStr(context.url(ctx))]) {
     Err(_) -> response.bad_request("invalid job")
-    Ok(spec) -> match anga.perform_later(spec) {
+    Ok(spec) -> match jobs.perform_later(spec) {
       Err(_) -> response.with_status(response.text("queue unavailable"), 503)
       Ok(_) -> response.with_status(response.text("queued"), 202)
     }
@@ -176,14 +177,10 @@ let restored = codec.decode(document)
 The decoder revalidates the ID, worker, queue, priority, timestamps, and
 execution counter. A persistent backend should reuse this document.
 
-## Development
+## Tests
 
-```sh
-./scripts/check.sh
-```
-
-The script checks canonical formatting, typechecking, linting, tests, and
-public documentation.
+`make tier1` runs the test blocks in `tests/unit/jobs_*_test.kai` and
+`tests/unit/jobs_test.kai`.
 
 ## Memory limitations
 
@@ -192,5 +189,5 @@ data on restart, does not start workers, and must not be used as a production
 backend. This is intentional; it keeps the contract stable and testable before
 adding supervision, locking, retries, and persistence.
 
-The architecture and decisions are documented in
-[`docs/design.md`](docs/design.md).
+The architecture is documented in `docs/jobs-design.md` and the decisions in
+`docs/decisions/jobs-*.md`.

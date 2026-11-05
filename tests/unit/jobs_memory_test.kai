@@ -1,16 +1,18 @@
 import encoding.json
 
+import encoding.json_bind.{JsonValue, JStr}
+
 import time
 
-import anga
+import ahu.jobs
 
-import anga.adapter
+import ahu.jobs.adapter
 
-import anga.execution
+import ahu.jobs.execution
 
-import anga.job
+import ahu.jobs.job
 
-import anga.adapters.memory
+import ahu.jobs.adapters.memory
 
 fn wall(secs: Int) : time.WallTime = time.WallTime { secs: secs, nanos: 0 }
 
@@ -76,7 +78,7 @@ test "memory handler preserves the body's other explicit effects" {
   let spec = expect_spec(job.new("cleanup", [JStr("guest-1")]))
   let run = handle {
     handle {
-      memory.with_adapter(memory.empty(), () => anga.perform_later(spec))
+      memory.with_adapter(memory.empty(), () => jobs.perform_later(spec))
     } with Clock {
       wall_now(resume) -> resume(wall(100))
       monotonic_now(resume) -> resume(time.instant_of_nanos(0))

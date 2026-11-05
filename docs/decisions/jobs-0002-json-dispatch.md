@@ -11,7 +11,7 @@ payload for a durable queue.
 ## Decision
 
 A job contains a stable worker name and `[JsonValue]`. The application provides
-an exhaustive dispatcher that maps the name to a typed function. `anga.codec`
+an exhaustive dispatcher that maps the name to a typed function. `ahu.jobs.codec`
 defines the canonical representation for future adapters.
 
 ## Alternatives

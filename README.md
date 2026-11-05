@@ -217,6 +217,8 @@ is required.
   modules `ahu.dotenv` and `ahu.yaml`.
 - **`docs/cli.md`** — `ahu.cli`, declarative command-line
   applications.
+- **`docs/jobs.md`** — `ahu.jobs`, background jobs behind a
+  replaceable queue adapter.
 - **`docs/roadmap.md`** — components and their state; the
   shape ahu uses instead of milestones.
 - **`docs/known-regressions.md`** — open issues outside this

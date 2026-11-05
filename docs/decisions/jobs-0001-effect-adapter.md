@@ -4,7 +4,7 @@ Status: accepted — 2026-08-12.
 
 ## Context
 
-Anga must support changing backends without requiring controllers, mailers, or
+`ahu.jobs` must support changing backends without requiring controllers, mailers, or
 domain code to import concrete implementations. Kaikai makes effects visible
 in every function signature.
 
