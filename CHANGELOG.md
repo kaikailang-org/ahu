@@ -6,6 +6,32 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-19
+
+### Breaking
+
+- **`with_cell` runs in its caller's `Actor[msg]` row.** `step` and
+  `body` are typed with `Actor[msg] + e`, so the caller's mailbox no
+  longer leaks into the cell's fiber and an `Actor` instance never
+  crosses a spawn. A caller of `with_cell` now needs a mailbox of the
+  cell's message type.
+
+### Added
+
+- **`ahu.cli`**: a command-line library (commands, flags, help),
+  adopted from `ao`.
+- **`ahu.jobs`**: background jobs with a backend-agnostic queue
+  effect, a canonical JSON codec and an in-memory adapter, adopted
+  from `anga`. Generated job ids keep the `anga_` prefix.
+- **`ahu.dotenv` and `ahu.yaml`**: configuration loading, adopted from
+  `kai-dotenv` and `kai-yaml`.
+
+### Fixed
+
+- **ahu builds on kaikai 0.192 and later.** Type parameters are
+  lowercase, as the compiler now requires. Verified on kaikai 0.195.0
+  and 0.196.3.
+
 ## [0.2.3] - 2026-10-25
 
 ### Fixed
