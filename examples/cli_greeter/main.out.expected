@@ -9,6 +9,6 @@ Commands:
 
 Options:
   -h, --help     Show this help message.
-  -v, --version  Show the application version.
+  -V, --version  Show the application version.
 
 
