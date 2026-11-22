@@ -100,3 +100,51 @@ test "a default command handles argv without an explicit command name" {
     _ -> false
   }
 }
+
+fn failing(_context: cli.Context) : Result[Unit, String] = Err("work failed")
+
+fn silently(application: cli.App[Stdout], argv: [String]) : Int = handle {
+  handle {
+    cli.run_argv(application, argv)
+  } with Stdout {
+    print(_message, resume) -> resume(())
+    is_tty(resume) -> resume(false)
+  }
+} with Stderr {
+  eprint(_message, resume) -> resume(())
+  is_tty(resume) -> resume(false)
+}
+
+fn exit_code(argv: [String]) : Int = silently(cli.app("tool", "demo") |> cli.versioned("1.0.0") |> cli.add_command(cli.command("run", "Runs.", failing) |> cli.with_option(cli.integer_option("jobs", "Worker count."))), argv)
+
+test "usage errors exit with 2 and command failures with 1" {
+  assert exit_code(["run", "--nope"]) == 2
+  assert exit_code(["nope"]) == 2
+  assert exit_code(["run", "--jobs"]) == 2
+  assert exit_code(["run", "--jobs", "many"]) == 2
+  assert exit_code(["run", "extra"]) == 2
+  assert exit_code(["run"]) == 1
+}
+
+test "successful help and version exit with 0" {
+  assert exit_code(["--help"]) == 0
+  assert exit_code(["help", "run"]) == 0
+  assert exit_code(["--version"]) == 0
+}
+
+test "an invalid application definition exits with 1" {
+  let duplicate = cli.app("bad", "bad") |> cli.add_command(cli.command("one", "one", failing)) |> cli.add_command(cli.command("one", "again", failing))
+  assert silently(duplicate, ["one"]) == 1
+}
+
+test "the usage exit code is configurable within 1..255" {
+  let base = cli.app("tool", "demo") |> cli.add_command(cli.command("run", "Runs.", failing))
+  assert silently(base |> cli.usage_exit_code(64), ["nope"]) == 64
+  assert silently(base |> cli.usage_exit_code(64), ["run"]) == 1
+  assert silently(base |> cli.usage_exit_code(0), ["nope"]) == 1
+  assert silently(base |> cli.usage_exit_code(256), ["nope"]) == 1
+  assert match cli.resolve(base |> cli.usage_exit_code(0), []) {
+    Err(error) -> cli.error_message(error) == "invalid application: usage exit code `0` is outside 1..255"
+    _ -> false
+  }
+}

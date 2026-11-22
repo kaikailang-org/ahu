@@ -41,7 +41,7 @@ pub type Context = { priv command_value: String, priv arguments_value: [Argument
 pub type Command[e] = { priv name_value: String, priv aliases_value: [String], priv description_value: String, priv arguments_value: [ArgumentSpec], priv options_value: [OptionSpec], priv action_value: (Context) -> Result[Unit, String] / e }
 
 #[doc("A self-documenting command-line application.")]
-pub type App[e] = { priv name_value: String, priv description_value: String, priv version_value: Option[String], priv default_command_value: Option[String], priv commands_value: [Command[e]] }
+pub type App[e] = { priv name_value: String, priv description_value: String, priv version_value: Option[String], priv default_command_value: Option[String], priv usage_exit_code_value: Int, priv commands_value: [Command[e]] }
 
 #[doc("A successfully resolved CLI request, before output or handler execution.")]
 pub type Resolution[e]
@@ -71,10 +71,13 @@ type NameValue = { name: String, value: Option[String] }
 type OptionRead = { parsed: ParsedOption, rest: [String] }
 
 #[doc("Creates an empty command-line application specification.")]
-pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, commands_value: [] }
+pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, usage_exit_code_value: 2, commands_value: [] }
 
 #[doc("Attaches a version string displayed by `--version` and `-v`.")]
 pub fn versioned[e](value: App[e], version: String) : App[e] = App { ...value, version_value: Some(version) }
+
+#[doc("Sets the exit code `run_argv` returns for an invalid command line; defaults to 2, valid range is 1 to 255.")]
+pub fn usage_exit_code[e](value: App[e], code: Int) : App[e] = App { ...value, usage_exit_code_value: code }
 
 #[doc("Registers a command, preserving declaration order in generated help.")]
 pub fn add_command[e](value: App[e], command: Command[e]) : App[e] = App { ...value, commands_value: [...value.commands_value, command] }
@@ -317,6 +320,8 @@ fn find_command(values: [Command[e]], wanted: String) : Option[Command[e]] = lis
 
 fn validate_app(value: App[e]) : Option[String] = if not valid_name(value.name_value, false) {
   Some("invalid application name `#{value.name_value}`")
+} else if value.usage_exit_code_value < 1 or value.usage_exit_code_value > 255 {
+  Some("usage exit code `#{value.usage_exit_code_value}` is outside 1..255")
 } else {
   match validate_commands(value.commands_value) {
     Some(message) -> Some(message)
@@ -671,11 +676,17 @@ pub fn execute[e](value: Resolution[e]) : Result[Unit, String] / e = match value
   ApplicationVersion(_) -> Err("cannot execute a version resolution")
 }
 
-#[doc("Runs an application against an explicit argument vector and returns a process exit code.")]
+# A broken application definition is a program fault; every other resolve error is a bad command line.
+fn error_exit_code(application: App[e], value: Error) : Int = match value {
+  InvalidDefinition(_) -> 1
+  _ -> application.usage_exit_code_value
+}
+
+#[doc("Runs an application against an explicit argument vector and returns a process exit code: 0 on success, the usage exit code (2 unless set with `usage_exit_code`) when the command line is invalid, 1 when the command fails.")]
 pub fn run_argv[e](value: App[e], argv: [String]) : Int / Stdout + Stderr + e = match resolve(value, argv) {
   Err(error) -> {
     Stderr.eprint("Error: #{error_message(error)}\nRun `#{value.name_value} help` for usage.\n")
-    1
+    error_exit_code(value, error)
   }
   Ok(ApplicationHelp) -> {
     Stdout.print(render_help(value))
