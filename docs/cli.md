@@ -137,6 +137,14 @@ never silently overwrite changed files. Callers choose `OverwriteExisting`,
 - Short options are intentionally not clustered: write `-f -v`, not `-fv`.
 - Command and option declarations are validated before each resolution.
 
+## Exit codes
+
+`cli.run` and `cli.run_argv` return `0` on success, including help and
+version output; `2` when the command line is invalid (unknown command or
+option, missing or malformed value, missing or extra arguments); and `1`
+when a command handler returns `Err` or the application definition itself
+is invalid. A script can therefore tell a wrong invocation from failed work.
+
 ## Pure resolution
 
 Use `cli.resolve(application, argv)` to test or embed the parser without reading
