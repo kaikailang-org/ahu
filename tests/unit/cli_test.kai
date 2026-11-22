@@ -136,3 +136,15 @@ test "an invalid application definition exits with 1" {
   let duplicate = cli.app("bad", "bad") |> cli.add_command(cli.command("one", "one", failing)) |> cli.add_command(cli.command("one", "again", failing))
   assert silently(duplicate, ["one"]) == 1
 }
+
+test "the usage exit code is configurable within 1..255" {
+  let base = cli.app("tool", "demo") |> cli.add_command(cli.command("run", "Runs.", failing))
+  assert silently(base |> cli.usage_exit_code(64), ["nope"]) == 64
+  assert silently(base |> cli.usage_exit_code(64), ["run"]) == 1
+  assert silently(base |> cli.usage_exit_code(0), ["nope"]) == 1
+  assert silently(base |> cli.usage_exit_code(256), ["nope"]) == 1
+  assert match cli.resolve(base |> cli.usage_exit_code(0), []) {
+    Err(error) -> cli.error_message(error) == "invalid application: usage exit code `0` is outside 1..255"
+    _ -> false
+  }
+}

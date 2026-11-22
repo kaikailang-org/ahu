@@ -145,6 +145,10 @@ option, missing or malformed value, missing or extra arguments); and `1`
 when a command handler returns `Err` or the application definition itself
 is invalid. A script can therefore tell a wrong invocation from failed work.
 
+`cli.usage_exit_code(application, 64)` replaces the usage code, for example
+with `EX_USAGE` from `sysexits.h`. The value must be between 1 and 255;
+anything else makes the application definition invalid.
+
 ## Pure resolution
 
 Use `cli.resolve(application, argv)` to test or embed the parser without reading

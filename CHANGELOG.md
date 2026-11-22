@@ -14,6 +14,11 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   1, as does an invalid application definition. Scripts that compared the
   exit code with 1 to detect a bad command line must check for 2.
 
+### Added
+
+- **`cli.usage_exit_code`** sets the exit code returned for a usage
+  error, for applications that prefer another value such as 64.
+
 ## [0.3.0] - 2026-11-19
 
 ### Breaking
