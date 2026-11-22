@@ -148,3 +148,24 @@ test "the usage exit code is configurable within 1..255" {
     _ -> false
   }
 }
+
+test "-V prints the version and -v is not reserved" {
+  assert match cli.resolve(configured_app(), ["-V"]) {
+    Ok(ApplicationVersion("1.2.3")) -> true
+    _ -> false
+  }
+  assert match cli.resolve(configured_app(), ["-v"]) {
+    Ok(ApplicationVersion(_)) -> false
+    _ -> true
+  }
+  assert string.index_of(cli.render_help(configured_app()), "-V, --version") != None
+  assert string.index_of(cli.render_help(configured_app()), "-v, --version") == None
+}
+
+test "a command may use -v for its own verbose flag" {
+  let application = cli.app("tool", "demo") |> cli.versioned("1.0.0") |> cli.add_command(cli.command("loc", "Counts.", noop) |> cli.with_option(cli.boolean_option("verbose", "Verbose output.") |> cli.short("v")))
+  assert match cli.resolve(application, ["loc", "-v"]) {
+    Ok(Invoke(_, context)) -> cli.boolean(context, "verbose")
+    _ -> false
+  }
+}

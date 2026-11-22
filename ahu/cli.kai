@@ -73,7 +73,7 @@ type OptionRead = { parsed: ParsedOption, rest: [String] }
 #[doc("Creates an empty command-line application specification.")]
 pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, usage_exit_code_value: 2, commands_value: [] }
 
-#[doc("Attaches a version string displayed by `--version` and `-v`.")]
+#[doc("Attaches a version string displayed by `--version` and `-V`.")]
 pub fn versioned[e](value: App[e], version: String) : App[e] = App { ...value, version_value: Some(version) }
 
 #[doc("Sets the exit code `run_argv` returns for an invalid command line; defaults to 2, valid range is 1 to 255.")]
@@ -537,7 +537,7 @@ pub fn resolve[e](value: App[e], argv: [String]) : Result[Resolution[e], Error] 
       None -> Err(VersionUnavailable)
       Some(version) -> Ok(ApplicationVersion(version))
     }
-    ["-v", ..._] -> match value.version_value {
+    ["-V", ..._] -> match value.version_value {
       None -> Err(VersionUnavailable)
       Some(version) -> Ok(ApplicationVersion(version))
     }
@@ -636,7 +636,7 @@ fn render_section(title: String, rows: [Pair[String, String]]) : String = if lis
 
 fn builtin_option_rows(value: App[e]) : [Pair[String, String]] = match value.version_value {
   None -> [("-h, --help", "Show this help message.")]
-  Some(_) -> [("-h, --help", "Show this help message."), ("-v, --version", "Show the application version.")]
+  Some(_) -> [("-h, --help", "Show this help message."), ("-V, --version", "Show the application version.")]
 }
 
 fn default_note(value: App[e]) : String = match value.default_command_value {

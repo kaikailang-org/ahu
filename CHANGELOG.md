@@ -13,6 +13,10 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
   extra arguments return 2 instead of 1. A failing command still returns
   1, as does an invalid application definition. Scripts that compared the
   exit code with 1 to detect a bad command line must check for 2.
+- **`ahu.cli` uses `-V` as the short form of `--version`.** `-v` is no
+  longer reserved at the application level, so it is free to mean
+  `--verbose`. Scripts that ran `tool -v` for the version must use
+  `tool -V` or `tool --version`.
 
 ### Added
 

@@ -13,7 +13,7 @@ It supports:
 - long options, one-character short aliases, `--name=value`, and `--no-name`;
 - required options and default values;
 - generated application and command help;
-- built-in `help`, `--help`, `-h`, `--version`, and `-v` handling;
+- built-in `help`, `--help`, `-h`, `--version`, and `-V` handling;
 - pure argument resolution separated from effectful execution;
 - default commands and deterministic definition validation;
 - interactive `say`, `ask`, `confirm`, `yes`, and `no` actions;
@@ -63,6 +63,7 @@ greeter hello Ana --greeting Hola
 greeter greet Ana --loud
 greeter help greet
 greeter --version
+greeter -V
 ```
 
 ## Handler context
