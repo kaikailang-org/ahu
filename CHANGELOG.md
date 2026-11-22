@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Breaking
+
+- **`ahu.cli` uses `-V` as the short form of `--version`.** `-v` is no
+  longer reserved at the application level, so it is free to mean
+  `--verbose`. Scripts that ran `tool -v` for the version must use
+  `tool -V` or `tool --version`.
+
 ## [0.3.0] - 2026-11-19
 
 ### Breaking
