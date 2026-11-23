@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **`cli.choices` and `cli.conflicts_with`** declare the allowed values of
+  a text option and options that cannot be combined. The parser reports a
+  violation as a usage error (`InvalidChoice`, `ConflictingOptions`) and
+  help lists both. The two new `Error` variants make an exhaustive match
+  on `cli.Error` in downstream code need two more arms.
+
 ### Fixed
 
 - **`ahu.cli` messages end with one newline, not two.** `Stdout.print`

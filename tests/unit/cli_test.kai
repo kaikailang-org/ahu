@@ -169,3 +169,65 @@ test "a command may use -v for its own verbose flag" {
     _ -> false
   }
 }
+
+fn loc_app() : cli.App[Stdout] = cli.app("km", "demo") |> cli.add_command(cli.command("loc", "Counts.", noop) |> cli.with_option(cli.text_option_with_default("format", "Output format.", "table") |> cli.choices(["table", "json"]) |> cli.short("f")) |> cli.with_option(cli.text_list_option("kind", "Kinds to count.") |> cli.choices(["code", "comment"])) |> cli.with_option(cli.text_list_option("include-ext", "Extensions to include.") |> cli.conflicts_with("exclude-ext")) |> cli.with_option(cli.text_list_option("exclude-ext", "Extensions to exclude.")))
+
+fn loc_error(argv: [String]) : String = match cli.resolve(loc_app(), ["loc", ...argv]) {
+  Err(error) -> cli.error_message(error)
+  Ok(_) -> "ok"
+}
+
+test "choices accept listed values and reject others, long, short and inline" {
+  assert loc_error(["--format", "json"]) == "ok"
+  assert loc_error(["--format=json", "--kind", "code", "--kind", "comment"]) == "ok"
+  assert loc_error([]) == "ok"
+  assert loc_error(["--format", "nope"]) == "option `--format` expects one of table, json, got `nope`"
+  assert loc_error(["--format=nope"]) == "option `--format` expects one of table, json, got `nope`"
+  assert loc_error(["-f", "nope"]) == "option `-f` expects one of table, json, got `nope`"
+  assert loc_error(["--kind", "code", "--kind", "nope"]) == "option `--kind` expects one of code, comment, got `nope`"
+}
+
+test "conflicting options are rejected only when both are supplied" {
+  assert loc_error(["--include-ext", "kai"]) == "ok"
+  assert loc_error(["--exclude-ext", "kai"]) == "ok"
+  assert loc_error(["--include-ext", "kai", "--exclude-ext", "md"]) == "options `--include-ext` and `--exclude-ext` cannot be used together"
+  assert loc_error(["--exclude-ext", "md", "--include-ext", "kai"]) == "options `--include-ext` and `--exclude-ext` cannot be used together"
+}
+
+test "choices and conflicts are listed in help on both sides of a conflict" {
+  let help = match cli.resolve(loc_app(), ["help", "loc"]) {
+    Ok(CommandHelp(command)) -> cli.render_command_help(loc_app(), command)
+    _ -> panic("expected command help")
+  }
+  assert string.index_of(help, "Choices: table, json. Default: table.") != None
+  assert string.index_of(help, "Extensions to include. Conflicts with --exclude-ext.") != None
+  assert string.index_of(help, "Extensions to exclude. Conflicts with --include-ext.") != None
+}
+
+test "invalid choices and conflicts are usage errors with the usage exit code" {
+  assert silently(loc_app(), ["loc", "--format", "nope"]) == 2
+  assert silently(loc_app(), ["loc", "--include-ext", "a", "--exclude-ext", "b"]) == 2
+}
+
+test "rejects inconsistent choices and conflict declarations" {
+  let bad_kind = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.integer_option("jobs", "jobs") |> cli.choices(["1"])))
+  let bad_default = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.text_option_with_default("mode", "mode", "x") |> cli.choices(["a"])))
+  let unknown = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.boolean_option("a", "a") |> cli.conflicts_with("b")))
+  let itself = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.boolean_option("a", "a") |> cli.conflicts_with("a")))
+  assert match cli.resolve(bad_kind, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: option `--jobs` cannot have choices: only text options can"
+    _ -> false
+  }
+  assert match cli.resolve(bad_default, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: the default of option `--mode` is not one of its choices"
+    _ -> false
+  }
+  assert match cli.resolve(unknown, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: option `--a` conflicts with unknown option `--b`"
+    _ -> false
+  }
+  assert match cli.resolve(itself, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: option `--a` cannot conflict with itself"
+    _ -> false
+  }
+}
