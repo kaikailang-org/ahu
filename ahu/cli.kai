@@ -26,7 +26,7 @@ pub type OptionValue
 pub type ArgumentSpec = { priv name_value: String, priv description_value: String, priv mode_value: ArgumentMode, priv default_value: Option[String] }
 
 #[doc("A long command option with an optional one-character alias.")]
-pub type OptionSpec = { priv name_value: String, priv description_value: String, priv kind_value: OptionKind, priv short_value: Option[String], priv value_name_value: String, priv required_value: Bool, priv default_value: Option[OptionValue] }
+pub type OptionSpec = { priv name_value: String, priv description_value: String, priv kind_value: OptionKind, priv short_value: Option[String], priv value_name_value: String, priv required_value: Bool, priv default_value: Option[OptionValue], priv choices_value: [String], priv conflicts_value: [String] }
 
 #[doc("The values bound to one declared positional argument.")]
 pub type ArgumentValue = { priv name_value: String, priv values_value: [String] }
@@ -58,6 +58,8 @@ pub type Error
   | MissingOptionValue(String)
   | InvalidInteger(String, String)
   | InvalidBoolean(String, String)
+  | InvalidChoice(String, String, [String])
+  | ConflictingOptions(String, String)
   | DuplicateOption(String)
   | MissingRequiredOption(String)
   | MissingArgument(String)
@@ -109,7 +111,7 @@ pub fn argument_with_default(name: String, description: String, default: String)
 #[doc("Declares a final positional argument that captures all remaining values.")]
 pub fn repeated_argument(name: String, description: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: RepeatedArgument, default_value: None }
 
-fn base_option(name: String, description: String, kind: OptionKind, value_name: String, default: Option[OptionValue]) : OptionSpec = OptionSpec { name_value: name, description_value: description, kind_value: kind, short_value: None, value_name_value: value_name, required_value: false, default_value: default }
+fn base_option(name: String, description: String, kind: OptionKind, value_name: String, default: Option[OptionValue]) : OptionSpec = OptionSpec { name_value: name, description_value: description, kind_value: kind, short_value: None, value_name_value: value_name, required_value: false, default_value: default, choices_value: [], conflicts_value: [] }
 
 #[doc("Declares a string-valued option.")]
 pub fn text_option(name: String, description: String) : OptionSpec = base_option(name, description, TextOption, "TEXT", None)
@@ -134,6 +136,12 @@ pub fn short(value: OptionSpec, alias: String) : OptionSpec = OptionSpec { ...va
 
 #[doc("Marks an option as mandatory and removes any implicit default.")]
 pub fn required(value: OptionSpec) : OptionSpec = OptionSpec { ...value, required_value: true, default_value: None }
+
+#[doc("Restricts a text or repeatable text option to a fixed set of values; each supplied value is checked and the set is shown in help.")]
+pub fn choices(value: OptionSpec, allowed: [String]) : OptionSpec = OptionSpec { ...value, choices_value: allowed }
+
+#[doc("Declares that an option cannot be supplied together with another option of the same command, named without dashes; the restriction applies in both directions.")]
+pub fn conflicts_with(value: OptionSpec, other: String) : OptionSpec = OptionSpec { ...value, conflicts_value: [...value.conflicts_value, other] }
 
 #[doc("Overrides the placeholder shown for a non-boolean option value.")]
 pub fn value_name(value: OptionSpec, name: String) : OptionSpec = OptionSpec { ...value, value_name_value: name }
@@ -229,6 +237,23 @@ fn option_shorts(values: [OptionSpec]) : [String] = match values {
   }
 }
 
+fn default_within_choices(value: OptionSpec) : Bool = match value.default_value {
+  Some(TextValue(found)) -> list.is_empty(value.choices_value) or list.contains(value.choices_value, found)
+  _ -> true
+}
+
+fn validate_conflicts(all: [OptionSpec], values: [OptionSpec]) : Option[String] = match values {
+  [] -> None
+  [value, ...rest] -> match list.find(value.conflicts_value, other => (other == value.name_value) or (option_by_name(all, other) == None)) {
+    Some(other) -> if other == value.name_value {
+      Some("option `--#{value.name_value}` cannot conflict with itself")
+    } else {
+      Some("option `--#{value.name_value}` conflicts with unknown option `--#{other}`")
+    }
+    None -> validate_conflicts(all, rest)
+  }
+}
+
 fn validate_options(values: [OptionSpec]) : Option[String] = match values {
   [] -> None
   [value, ...rest] -> if not valid_name(value.name_value, false) {
@@ -244,6 +269,10 @@ fn validate_options(values: [OptionSpec]) : Option[String] = match values {
     Some("short option alias `h` is reserved")
   } else if (value.kind_value == BooleanOption) and (value.value_name_value != "") {
     Some("boolean option `--#{value.name_value}` cannot have a value placeholder")
+  } else if not list.is_empty(value.choices_value) and not ((value.kind_value == TextOption) or (value.kind_value == TextListOption)) {
+    Some("option `--#{value.name_value}` cannot have choices: only text options can")
+  } else if not default_within_choices(value) {
+    Some("the default of option `--#{value.name_value}` is not one of its choices")
   } else {
     validate_options(rest)
   }
@@ -292,9 +321,12 @@ fn validate_command(value: Command[e]) : Option[String] = if not valid_name(valu
           Some(message) -> Some("command `#{value.name_value}`: #{message}")
           None -> match validate_options(value.options_value) {
             Some(message) -> Some("command `#{value.name_value}`: #{message}")
-            None -> match duplicate(option_names(value.options_value), []) {
+            None -> match validate_conflicts(value.options_value, value.options_value) {
+              Some(message) -> Some("command `#{value.name_value}`: #{message}")
+              None -> match duplicate(option_names(value.options_value), []) {
               Some(name) -> Some("command `#{value.name_value}`: duplicate option `--#{name}`")
               None -> duplicate(option_shorts(value.options_value), []) |> option.map(name => "command `#{value.name_value}`: duplicate short option `-#{name}`")
+            }
             }
           }
         }
@@ -360,6 +392,12 @@ fn supplied_value(name: String, inline: Option[String], rest: [String]) : Result
   }
 }
 
+fn check_choice(spec: OptionSpec, display_name: String, supplied: String) : Result[Unit, Error] = if list.is_empty(spec.choices_value) or list.contains(spec.choices_value, supplied) {
+  Ok(())
+} else {
+  Err(InvalidChoice(display_name, supplied, spec.choices_value))
+}
+
 fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], rest: [String], negated: Bool) : Result[OptionRead, Error] = match spec.kind_value {
   BooleanOption -> if negated {
     match inline {
@@ -377,6 +415,7 @@ fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], r
   }
   TextOption -> {
     let supplied = supplied_value(display_name, inline, rest)!
+    check_choice(spec, display_name, supplied.fst)!
     Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextValue(supplied.fst), present_value: true }, rest: supplied.snd })
   }
   IntegerOption -> {
@@ -388,6 +427,7 @@ fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], r
   }
   TextListOption -> {
     let supplied = supplied_value(display_name, inline, rest)!
+    check_choice(spec, display_name, supplied.fst)!
     Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextListValue([supplied.fst]), present_value: true }, rest: supplied.snd })
   }
 }
@@ -459,6 +499,25 @@ fn parse_tokens(options: [OptionSpec], tokens: [String], state: ParseState) : Re
 
 fn parsed_option(values: [ParsedOption], wanted: String) : Option[ParsedOption] = list.find(values, value => value.name_value == wanted)
 
+fn option_supplied(values: [ParsedOption], wanted: String) : Bool = match parsed_option(values, wanted) {
+  Some(found) -> found.present_value
+  None -> false
+}
+
+fn first_supplied_conflict(value: OptionSpec, parsed: [ParsedOption]) : Option[String] = list.find(value.conflicts_value, other => option_supplied(parsed, other))
+
+fn check_conflicts(specs: [OptionSpec], parsed: [ParsedOption]) : Result[Unit, Error] = match specs {
+  [] -> Ok(())
+  [spec, ...rest] -> if option_supplied(parsed, spec.name_value) {
+    match first_supplied_conflict(spec, parsed) {
+      Some(other) -> Err(ConflictingOptions(spec.name_value, other))
+      None -> check_conflicts(rest, parsed)
+    }
+  } else {
+    check_conflicts(rest, parsed)
+  }
+}
+
 fn finalize_options(specs: [OptionSpec], parsed: [ParsedOption], acc: [ParsedOption]) : Result[[ParsedOption], Error] = match specs {
   [] -> Ok(list.reverse(acc))
   [spec, ...rest] -> match parsed_option(parsed, spec.name_value) {
@@ -500,6 +559,7 @@ fn resolve_command(value: Command[e], tokens: [String]) : Result[Resolution[e], 
   Ok(CommandHelp(value))
 } else {
   let parsed = parse_tokens(value.options_value, tokens, ParseState { positionals: [], options: [], options_enabled: true })!
+  check_conflicts(value.options_value, parsed.options)!
   let arguments = bind_arguments(value.arguments_value, list.reverse(parsed.positionals), [])!
   let options = finalize_options(value.options_value, parsed.options, [])!
   Ok(Invoke(value, Context { command_value: value.name_value, arguments_value: arguments, options_value: options }))
@@ -600,16 +660,32 @@ fn option_label(value: OptionSpec) : String {
   }
 }
 
-fn option_description(value: OptionSpec) : String {
+fn option_choices(value: OptionSpec) : String = if list.is_empty(value.choices_value) {
+  ""
+} else {
+  " Choices: #{string.join(value.choices_value, ", ")}."
+}
+
+fn conflicting_names(value: OptionSpec, all: [OptionSpec]) : [String] {
+  let declared_by_others = all |> list.filter(other => list.contains(other.conflicts_value, value.name_value)) | (.name_value)
+  list.uniq([...value.conflicts_value, ...declared_by_others])
+}
+
+fn option_conflicts(value: OptionSpec, all: [OptionSpec]) : String = match conflicting_names(value, all) {
+  [] -> ""
+  names -> " Conflicts with #{string.join(names | (name => "--#{name}"), ", ")}."
+}
+
+fn option_description(value: OptionSpec, all: [OptionSpec]) : String {
   let required = if value.required_value {
     " Required."
   } else {
     ""
   }
-  "#{value.description_value}#{required}#{option_default(value.default_value)}"
+  "#{value.description_value}#{required}#{option_choices(value)}#{option_default(value.default_value)}#{option_conflicts(value, all)}"
 }
 
-fn option_rows(values: [OptionSpec]) : [Pair[String, String]] = values | (value => (option_label(value), option_description(value)))
+fn option_rows(values: [OptionSpec]) : [Pair[String, String]] = values | (value => (option_label(value), option_description(value, values)))
 
 fn max_width(rows: [Pair[String, String]], current: Int) : Int = match rows {
   [] -> current
@@ -661,6 +737,8 @@ pub fn error_message(value: Error) : String = match value {
   MissingOptionValue(name) -> "option `#{name}` requires a value"
   InvalidInteger(name, found) -> "option `#{name}` expects an integer, got `#{found}`"
   InvalidBoolean(name, found) -> "option `#{name}` expects true, false, 1, or 0; got `#{found}`"
+  InvalidChoice(name, found, allowed) -> "option `#{name}` expects one of #{string.join(allowed, ", ")}, got `#{found}`"
+  ConflictingOptions(first, second) -> "options `--#{first}` and `--#{second}` cannot be used together"
   DuplicateOption(name) -> "option `--#{name}` may only be supplied once"
   MissingRequiredOption(name) -> "required option `--#{name}` is missing"
   MissingArgument(name) -> "required argument `#{name}` is missing"

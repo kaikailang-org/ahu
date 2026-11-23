@@ -12,6 +12,8 @@ It supports:
 - string, integer, boolean, and repeatable string options;
 - long options, one-character short aliases, `--name=value`, and `--no-name`;
 - required options and default values;
+- fixed sets of allowed values (`choices`) and mutually exclusive options
+  (`conflicts_with`), both reported as usage errors and shown in help;
 - generated application and command help;
 - built-in `help`, `--help`, `-h`, `--version`, and `-V` handling;
 - pure argument resolution separated from effectful execution;
@@ -149,6 +151,31 @@ is invalid. A script can therefore tell a wrong invocation from failed work.
 `cli.usage_exit_code(application, 64)` replaces the usage code, for example
 with `EX_USAGE` from `sysexits.h`. The value must be between 1 and 255;
 anything else makes the application definition invalid.
+
+## Choices and conflicts
+
+A text or repeatable text option can be restricted to a fixed set, and an option
+can exclude another option of the same command:
+
+```kai
+cli.text_option_with_default("format", "Output format.", "table")
+  |> cli.choices(["table", "json"])
+
+cli.text_list_option("include-ext", "Extensions to include.")
+  |> cli.conflicts_with("exclude-ext")
+```
+
+Each supplied value is checked against the choices, so every occurrence of a
+repeatable option is validated. A conflict is declared on either option and
+applies in both directions; it triggers when both options are supplied
+explicitly. Violations resolve to `InvalidChoice` and `ConflictingOptions`,
+exit with the usage exit code, and help lists `Choices: ...` and
+`Conflicts with ...` on the affected options. The definition is rejected when
+choices are set on a non-text option, when a default is not among the choices,
+or when a conflict names an unknown option or the option itself.
+
+Validations that no declaration can express still belong in the handler, which
+reports them as a command failure.
 
 ## Pure resolution
 
