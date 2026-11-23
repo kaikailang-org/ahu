@@ -1,0 +1,27 @@
+import ahu.cli
+import ahu.cli.actions
+
+fn failing(_context: cli.Context) : Result[Unit, String] = Err("work failed")
+
+fn application() : cli.App[Stdout] = cli.app("tool", "demo") |> cli.versioned("1.0.0") |> cli.add_command(cli.command("run", "Runs.", failing))
+
+# Standard error is routed to standard output so the runtime's own line
+# ending is visible in the diffed output: one message, one line.
+fn run(argv: [String]) : Int / Stdout = handle {
+  cli.run_argv(application(), argv)
+} with Stderr {
+  eprint(message, resume) -> {
+    Stdout.print("stderr: #{message}")
+    resume(())
+  }
+  is_tty(resume) -> resume(false)
+}
+
+fn main() : Int / Stdout {
+  let _ = run(["--version"])
+  let _ = run(["nope"])
+  let _ = run(["run"])
+  actions.say("say")
+  actions.say_status("create", "file")
+  0
+}

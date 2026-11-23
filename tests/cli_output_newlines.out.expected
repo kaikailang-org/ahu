@@ -1,0 +1,6 @@
+tool 1.0.0
+stderr: Error: unknown command `nope`
+Run `tool help` for usage.
+stderr: Error: work failed
+say
+      create  file

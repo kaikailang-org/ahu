@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ahu.cli` messages end with one newline, not two.** `Stdout.print`
+  and `Stderr.eprint` already end the line, so the version, usage-error
+  and command-failure messages, `actions.say` and `actions.say_status`
+  no longer add a second `\n`, which left an empty line after each.
+
 ## [0.4.0] - 2026-11-22
 
 ### Breaking
