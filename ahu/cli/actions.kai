@@ -49,10 +49,10 @@ pub type ActionError
 pub fn binding(name: String, value: String) : Binding = Binding { name_value: name, value_value: value }
 
 #[doc("Writes one informational line to standard output.")]
-pub fn say(message: String) : Unit / Stdout = Stdout.print("#{message}\n")
+pub fn say(message: String) : Unit / Stdout = Stdout.print(message)
 
 #[doc("Writes a right-aligned status and message in a generator-friendly form.")]
-pub fn say_status(status: String, message: String) : Unit / Stdout = Stdout.print("#{string.pad_left(status, 12, ' ')}  #{message}\n")
+pub fn say_status(status: String, message: String) : Unit / Stdout = Stdout.print("#{string.pad_left(status, 12, ' ')}  #{message}")
 
 #[doc("Asks one question and returns the next input line, or `None` at EOF.")]
 pub fn ask(question: String) : Option[String] / Stdout + Stdin {
