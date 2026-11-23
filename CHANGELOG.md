@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
 ### Added
 
 - **`cli.choices` and `cli.conflicts_with`** declare the allowed values of
