@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
 ### Breaking
 
 - **`cli.run` and `cli.run_argv` exit with 2 on a usage error.** An
