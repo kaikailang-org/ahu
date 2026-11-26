@@ -1,0 +1,27 @@
+import ahu.cli
+
+fn failing(_context: cli.Context) : Result[Unit, String] = Err("unknown unit in --since: \"6x\"")
+
+fn application() : cli.App[Stdout] = cli.app("tool", "demo") |> cli.add_command(cli.command("run", "Runs.", failing))
+
+fn run(label: String, value: cli.App[Stdout], argv: [String]) : Unit / Stdout {
+  let code = handle {
+    cli.run_argv(value, argv)
+  } with Stderr {
+    eprint(message, resume) -> {
+      Stdout.print("#{label}: #{message}")
+      resume(())
+    }
+    is_tty(resume) -> resume(false)
+  }
+  Stdout.print("#{label}: exit #{code}")
+}
+
+fn main() : Int / Stdout {
+  run("default", application(), ["run"])
+  run("lowercase", application() |> cli.error_prefix("error:"), ["run"])
+  run("lowercase usage", application() |> cli.error_prefix("error:"), ["nope"])
+  run("empty", application() |> cli.error_prefix(""), ["run"])
+  run("empty usage", application() |> cli.error_prefix(""), ["nope"])
+  0
+}

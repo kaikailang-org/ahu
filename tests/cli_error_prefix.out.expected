@@ -1,0 +1,12 @@
+default: Error: unknown unit in --since: "6x"
+default: exit 1
+lowercase: error: unknown unit in --since: "6x"
+lowercase: exit 1
+lowercase usage: error: unknown command `nope`
+Run `tool help` for usage.
+lowercase usage: exit 2
+empty: unknown unit in --since: "6x"
+empty: exit 1
+empty usage: unknown command `nope`
+Run `tool help` for usage.
+empty usage: exit 2
