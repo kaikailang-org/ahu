@@ -9,7 +9,8 @@ It supports:
 
 - named commands and aliases;
 - required, optional, defaulted, and repeated positional arguments;
-- string, integer, boolean, and repeatable string options;
+- string, integer, boolean, and repeatable string options, the last optionally
+  split at a delimiter (`--kind code,docs`);
 - long options, one-character short aliases, `--name=value`, and `--no-name`;
 - required options and default values;
 - fixed sets of allowed values (`choices`) and mutually exclusive options
@@ -152,6 +153,11 @@ is invalid. A script can therefore tell a wrong invocation from failed work.
 with `EX_USAGE` from `sysexits.h`. The value must be between 1 and 255;
 anything else makes the application definition invalid.
 
+`run_argv` prints a usage error as `Error: <message>` followed by a pointer to
+help, and a failed command as `Error: <message>`. `cli.error_prefix(application,
+"error:")` replaces the prefix in both, so an application can keep another
+tool's wording; an empty prefix prints the message alone.
+
 ## Choices and conflicts
 
 A text or repeatable text option can be restricted to a fixed set, and an option
@@ -173,6 +179,13 @@ exit with the usage exit code, and help lists `Choices: ...` and
 `Conflicts with ...` on the affected options. The definition is rejected when
 choices are set on a non-text option, when a default is not among the choices,
 or when a conflict names an unknown option or the option itself.
+
+`cli.value_delimiter(option, ",")` lets a repeatable text option take several
+values in one occurrence: `--kind code,docs --kind all` gives `cli.texts` the
+list `code`, `docs`, `all`. Choices apply to each element, so `--kind code,nope`
+is an `InvalidChoice` naming `nope`, and help adds ``Values may be separated by
+`,`.`` Empty elements are kept, as `string.split` keeps them. The definition is
+rejected when the delimiter is empty or set on any other kind of option.
 
 Validations that no declaration can express still belong in the handler, which
 reports them as a command failure.
@@ -196,7 +209,8 @@ implementation stays native to Kaikai.
 
 `make tier1` runs the parser tests in `tests/unit/cli_test.kai`, the action
 tests in `tests/unit/cli_actions_test.kai`, the file round-trip in
-`tests/cli_actions_file_roundtrip.kai`, and the two examples.
+`tests/cli_actions_file_roundtrip.kai`, the error prefix in
+`tests/cli_error_prefix.kai`, and the two examples.
 
 Runnable examples live in `examples/cli_greeter/main.kai` and
 `examples/cli_generator/main.kai`. The generator combines the command parser,

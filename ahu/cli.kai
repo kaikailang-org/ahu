@@ -26,7 +26,7 @@ pub type OptionValue
 pub type ArgumentSpec = { priv name_value: String, priv description_value: String, priv mode_value: ArgumentMode, priv default_value: Option[String] }
 
 #[doc("A long command option with an optional one-character alias.")]
-pub type OptionSpec = { priv name_value: String, priv description_value: String, priv kind_value: OptionKind, priv short_value: Option[String], priv value_name_value: String, priv required_value: Bool, priv default_value: Option[OptionValue], priv choices_value: [String], priv conflicts_value: [String] }
+pub type OptionSpec = { priv name_value: String, priv description_value: String, priv kind_value: OptionKind, priv short_value: Option[String], priv value_name_value: String, priv required_value: Bool, priv default_value: Option[OptionValue], priv choices_value: [String], priv conflicts_value: [String], priv delimiter_value: Option[String] }
 
 #[doc("The values bound to one declared positional argument.")]
 pub type ArgumentValue = { priv name_value: String, priv values_value: [String] }
@@ -41,7 +41,7 @@ pub type Context = { priv command_value: String, priv arguments_value: [Argument
 pub type Command[e] = { priv name_value: String, priv aliases_value: [String], priv description_value: String, priv arguments_value: [ArgumentSpec], priv options_value: [OptionSpec], priv action_value: (Context) -> Result[Unit, String] / e }
 
 #[doc("A self-documenting command-line application.")]
-pub type App[e] = { priv name_value: String, priv description_value: String, priv version_value: Option[String], priv default_command_value: Option[String], priv usage_exit_code_value: Int, priv commands_value: [Command[e]] }
+pub type App[e] = { priv name_value: String, priv description_value: String, priv version_value: Option[String], priv default_command_value: Option[String], priv usage_exit_code_value: Int, priv error_prefix_value: String, priv commands_value: [Command[e]] }
 
 #[doc("A successfully resolved CLI request, before output or handler execution.")]
 pub type Resolution[e]
@@ -73,13 +73,16 @@ type NameValue = { name: String, value: Option[String] }
 type OptionRead = { parsed: ParsedOption, rest: [String] }
 
 #[doc("Creates an empty command-line application specification.")]
-pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, usage_exit_code_value: 2, commands_value: [] }
+pub fn app[e](name: String, description: String) : App[e] = App { name_value: name, description_value: description, version_value: None, default_command_value: None, usage_exit_code_value: 2, error_prefix_value: "Error:", commands_value: [] }
 
 #[doc("Attaches a version string displayed by `--version` and `-V`.")]
 pub fn versioned[e](value: App[e], version: String) : App[e] = App { ...value, version_value: Some(version) }
 
 #[doc("Sets the exit code `run_argv` returns for an invalid command line; defaults to 2, valid range is 1 to 255.")]
 pub fn usage_exit_code[e](value: App[e], code: Int) : App[e] = App { ...value, usage_exit_code_value: code }
+
+#[doc("Sets the word `run_argv` prints before a usage error or a failed command's message; defaults to `Error:`, and an empty prefix prints the message alone.")]
+pub fn error_prefix[e](value: App[e], prefix: String) : App[e] = App { ...value, error_prefix_value: prefix }
 
 #[doc("Registers a command, preserving declaration order in generated help.")]
 pub fn add_command[e](value: App[e], command: Command[e]) : App[e] = App { ...value, commands_value: [...value.commands_value, command] }
@@ -111,7 +114,7 @@ pub fn argument_with_default(name: String, description: String, default: String)
 #[doc("Declares a final positional argument that captures all remaining values.")]
 pub fn repeated_argument(name: String, description: String) : ArgumentSpec = ArgumentSpec { name_value: name, description_value: description, mode_value: RepeatedArgument, default_value: None }
 
-fn base_option(name: String, description: String, kind: OptionKind, value_name: String, default: Option[OptionValue]) : OptionSpec = OptionSpec { name_value: name, description_value: description, kind_value: kind, short_value: None, value_name_value: value_name, required_value: false, default_value: default, choices_value: [], conflicts_value: [] }
+fn base_option(name: String, description: String, kind: OptionKind, value_name: String, default: Option[OptionValue]) : OptionSpec = OptionSpec { name_value: name, description_value: description, kind_value: kind, short_value: None, value_name_value: value_name, required_value: false, default_value: default, choices_value: [], conflicts_value: [], delimiter_value: None }
 
 #[doc("Declares a string-valued option.")]
 pub fn text_option(name: String, description: String) : OptionSpec = base_option(name, description, TextOption, "TEXT", None)
@@ -139,6 +142,9 @@ pub fn required(value: OptionSpec) : OptionSpec = OptionSpec { ...value, require
 
 #[doc("Restricts a text or repeatable text option to a fixed set of values; each supplied value is checked and the set is shown in help.")]
 pub fn choices(value: OptionSpec, allowed: [String]) : OptionSpec = OptionSpec { ...value, choices_value: allowed }
+
+#[doc("Splits each occurrence of a repeatable text option at `delimiter`, so `--kind a,b` supplies `a` and `b`; choices apply to each element.")]
+pub fn value_delimiter(value: OptionSpec, delimiter: String) : OptionSpec = OptionSpec { ...value, delimiter_value: Some(delimiter) }
 
 #[doc("Declares that an option cannot be supplied together with another option of the same command, named without dashes; the restriction applies in both directions.")]
 pub fn conflicts_with(value: OptionSpec, other: String) : OptionSpec = OptionSpec { ...value, conflicts_value: [...value.conflicts_value, other] }
@@ -271,6 +277,10 @@ fn validate_options(values: [OptionSpec]) : Option[String] = match values {
     Some("boolean option `--#{value.name_value}` cannot have a value placeholder")
   } else if not list.is_empty(value.choices_value) and not ((value.kind_value == TextOption) or (value.kind_value == TextListOption)) {
     Some("option `--#{value.name_value}` cannot have choices: only text options can")
+  } else if (value.delimiter_value != None) and (value.kind_value != TextListOption) {
+    Some("option `--#{value.name_value}` cannot have a value delimiter: only repeatable text options can")
+  } else if value.delimiter_value == Some("") {
+    Some("the value delimiter of option `--#{value.name_value}` is empty")
   } else if not default_within_choices(value) {
     Some("the default of option `--#{value.name_value}` is not one of its choices")
   } else {
@@ -398,6 +408,19 @@ fn check_choice(spec: OptionSpec, display_name: String, supplied: String) : Resu
   Err(InvalidChoice(display_name, supplied, spec.choices_value))
 }
 
+fn check_choices(spec: OptionSpec, display_name: String, supplied: [String]) : Result[Unit, Error] = match supplied {
+  [] -> Ok(())
+  [value, ...rest] -> {
+    check_choice(spec, display_name, value)!
+    check_choices(spec, display_name, rest)
+  }
+}
+
+fn list_elements(spec: OptionSpec, supplied: String) : [String] = match spec.delimiter_value {
+  None -> [supplied]
+  Some(delimiter) -> string.split(supplied, delimiter)
+}
+
 fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], rest: [String], negated: Bool) : Result[OptionRead, Error] = match spec.kind_value {
   BooleanOption -> if negated {
     match inline {
@@ -427,8 +450,9 @@ fn read_option(spec: OptionSpec, display_name: String, inline: Option[String], r
   }
   TextListOption -> {
     let supplied = supplied_value(display_name, inline, rest)!
-    check_choice(spec, display_name, supplied.fst)!
-    Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextListValue([supplied.fst]), present_value: true }, rest: supplied.snd })
+    let elements = list_elements(spec, supplied.fst)
+    check_choices(spec, display_name, elements)!
+    Ok(OptionRead { parsed: ParsedOption { name_value: spec.name_value, value_value: TextListValue(elements), present_value: true }, rest: supplied.snd })
   }
 }
 
@@ -666,6 +690,11 @@ fn option_choices(value: OptionSpec) : String = if list.is_empty(value.choices_v
   " Choices: #{string.join(value.choices_value, ", ")}."
 }
 
+fn option_delimiter(value: OptionSpec) : String = match value.delimiter_value {
+  None -> ""
+  Some(delimiter) -> " Values may be separated by `#{delimiter}`."
+}
+
 fn conflicting_names(value: OptionSpec, all: [OptionSpec]) : [String] {
   let declared_by_others = all |> list.filter(other => list.contains(other.conflicts_value, value.name_value)) | (.name_value)
   list.uniq([...value.conflicts_value, ...declared_by_others])
@@ -682,7 +711,7 @@ fn option_description(value: OptionSpec, all: [OptionSpec]) : String {
   } else {
     ""
   }
-  "#{value.description_value}#{required}#{option_choices(value)}#{option_default(value.default_value)}#{option_conflicts(value, all)}"
+  "#{value.description_value}#{required}#{option_choices(value)}#{option_delimiter(value)}#{option_default(value.default_value)}#{option_conflicts(value, all)}"
 }
 
 fn option_rows(values: [OptionSpec]) : [Pair[String, String]] = values | (value => (option_label(value), option_description(value, values)))
@@ -755,6 +784,12 @@ pub fn execute[e](value: Resolution[e]) : Result[Unit, String] / e = match value
 }
 
 # A broken application definition is a program fault; every other resolve error is a bad command line.
+fn with_prefix(application: App[e], message: String) : String = if application.error_prefix_value == "" {
+  message
+} else {
+  "#{application.error_prefix_value} #{message}"
+}
+
 fn error_exit_code(application: App[e], value: Error) : Int = match value {
   InvalidDefinition(_) -> 1
   _ -> application.usage_exit_code_value
@@ -763,7 +798,7 @@ fn error_exit_code(application: App[e], value: Error) : Int = match value {
 #[doc("Runs an application against an explicit argument vector and returns a process exit code: 0 on success, the usage exit code (2 unless set with `usage_exit_code`) when the command line is invalid, 1 when the command fails.")]
 pub fn run_argv[e](value: App[e], argv: [String]) : Int / Stdout + Stderr + e = match resolve(value, argv) {
   Err(error) -> {
-    Stderr.eprint("Error: #{error_message(error)}\nRun `#{value.name_value} help` for usage.")
+    Stderr.eprint("#{with_prefix(value, error_message(error))}\nRun `#{value.name_value} help` for usage.")
     error_exit_code(value, error)
   }
   Ok(ApplicationHelp) -> {
@@ -781,7 +816,7 @@ pub fn run_argv[e](value: App[e], argv: [String]) : Int / Stdout + Stderr + e = 
   Ok(Invoke(command, context)) -> match command.action_value(context) {
     Ok(_) -> 0
     Err(message) -> {
-      Stderr.eprint("Error: #{message}")
+      Stderr.eprint(with_prefix(value, message))
       1
     }
   }

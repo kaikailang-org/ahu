@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **`cli.value_delimiter`** splits each occurrence of a repeatable text
+  option, so `--kind code,docs` supplies two values. `cli.choices` checks
+  each element and reports the bad one as a usage error, and help says the
+  option accepts delimited values.
+- **`cli.error_prefix`** replaces the `Error:` that `run_argv` prints before
+  a usage error and before a failed command's message, so an application can
+  match another tool's wording, such as `error:`. An empty prefix prints the
+  message alone.
+
 ## [0.5.0] - 2026-11-23
 
 ### Added

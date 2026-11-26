@@ -231,3 +231,50 @@ test "rejects inconsistent choices and conflict declarations" {
     _ -> false
   }
 }
+
+fn kinds_app() : cli.App[Stdout] = cli.app("km", "demo") |> cli.add_command(cli.command("loc", "Counts.", noop) |> cli.with_option(cli.text_list_option("kind", "Kinds to count.") |> cli.choices(["code", "docs", "all"]) |> cli.value_delimiter(",")) |> cli.with_option(cli.text_list_option("path", "Paths.") |> cli.value_delimiter(":")) |> cli.with_option(cli.text_list_option("tag", "Tags.")))
+
+fn kinds(argv: [String]) : Result[[String], String] = match cli.resolve(kinds_app(), ["loc", ...argv]) {
+  Ok(Invoke(_, context)) -> Ok(cli.texts(context, "kind"))
+  Ok(_) -> Err("not an invocation")
+  Err(error) -> Err(cli.error_message(error))
+}
+
+test "a value delimiter splits each occurrence and keeps the order" {
+  assert kinds(["--kind", "code,docs"]) == Ok(["code", "docs"])
+  assert kinds(["--kind=docs", "--kind", "code,all"]) == Ok(["docs", "code", "all"])
+  assert kinds(["--kind", "code"]) == Ok(["code"])
+  assert kinds([]) == Ok([])
+  assert match cli.resolve(kinds_app(), ["loc", "--path", "a:b", "--tag", "x,y"]) {
+    Ok(Invoke(_, context)) -> (cli.texts(context, "path") == ["a", "b"]) and (cli.texts(context, "tag") == ["x,y"])
+    _ -> false
+  }
+}
+
+test "choices apply to each delimited element" {
+  assert kinds(["--kind", "code,nope"]) == Err("option `--kind` expects one of code, docs, all, got `nope`")
+  assert kinds(["--kind", "code,"]) == Err("option `--kind` expects one of code, docs, all, got ``")
+  assert silently(kinds_app(), ["loc", "--kind", "code,nope"]) == 2
+}
+
+test "help says an option accepts delimited values" {
+  let help = match cli.resolve(kinds_app(), ["help", "loc"]) {
+    Ok(CommandHelp(command)) -> cli.render_command_help(kinds_app(), command)
+    _ -> panic("expected command help")
+  }
+  assert string.index_of(help, "Kinds to count. Choices: code, docs, all. Values may be separated by `,`.") != None
+  assert string.index_of(help, "Tags.\n") != None
+}
+
+test "rejects a value delimiter on a scalar option or an empty one" {
+  let scalar = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.text_option("mode", "mode") |> cli.value_delimiter(",")))
+  let empty = cli.app("bad", "bad") |> cli.add_command(cli.command("run", "run", noop) |> cli.with_option(cli.text_list_option("tag", "tag") |> cli.value_delimiter("")))
+  assert match cli.resolve(scalar, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: option `--mode` cannot have a value delimiter: only repeatable text options can"
+    _ -> false
+  }
+  assert match cli.resolve(empty, []) {
+    Err(error) -> cli.error_message(error) == "invalid application: command `run`: the value delimiter of option `--tag` is empty"
+    _ -> false
+  }
+}
