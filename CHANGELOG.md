@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Added
 
 - **`ahu.glob`** compiles globs and sets of globs with `globset`'s
