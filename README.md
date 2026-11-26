@@ -1,11 +1,13 @@
 # ahu
 
-Concurrency and fault-tolerance framework for
-[kaikai](https://github.com/lnds/kaikai). Three composable
-layers — *streams*, *cells*, *restart helpers* — built on
-kaikai's structured concurrency, typed mailboxes, and
-effects. Plus a small `run_app` bootstrap and a combined
-`restartable_cell` helper.
+A platform for building applications in
+[kaikai](https://github.com/lnds/kaikai). At its core, concurrency and
+fault tolerance in three composable layers — *streams*, *cells*,
+*restart helpers* — built on kaikai's structured concurrency, typed
+mailboxes, and effects, with a small `run_app` bootstrap and a combined
+`restartable_cell` helper. Around it, what applications keep needing:
+command lines, `.env` files, YAML, background jobs, structured logging,
+globs and ignore-aware directory walks.
 
 ahu is **not** an OTP clone. The patterns OTP got right
 (restart policies, stateful message loops, composable
@@ -30,6 +32,8 @@ Layer 3 — Restart helpers      shipped  (ahu/restart.kai)
 restartable_cell               shipped  (ahu/restart.kai)
 Logging                        shipped  (ahu/log.kai — structured fields)
 run_app bootstrap              shipped  (ahu/app.kai)
+Globs                          shipped  (ahu/glob.kai — docs/glob.md)
+Ignore files and walk          shipped  (ahu/ignore.kai — docs/ignore.md)
 
 Reference applications:
   examples/demo/               full stack: cell + restart + log + run_app
@@ -117,6 +121,7 @@ What "stable" commits to, per module:
 - `ahu.restart.*` — the full restart-helper surface.
 - `ahu.log.*` — the structured-fields logging surface.
 - `ahu.app.run_app` — the bootstrap helper.
+- `ahu.glob` and `ahu.ignore` — globs, ignore files and the walk.
 
 Planned follow-ups (a `cell.ask_timeout` once the upstream
 `Clock` effect lands, a cross-mailbox `ask` variant once a typed

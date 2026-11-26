@@ -1,0 +1,443 @@
+# `.gitignore` and `.ignore` semantics, and a directory walk that applies
+# them. `.ignore` is consulted first, then `.gitignore`, then the
+# repository's `info/exclude`, then the user's global excludes file; the
+# deepest file of each kind decides it. The three git sources apply only
+# inside a repository.
+
+import collections.map
+import fs.dir
+import fs.dir.{DirEntry, EntryDir, EntryFile}
+import fs.file
+import os.env
+import path
+import ahu.glob
+import ahu.glob.{Glob, WholePath, LastComponent, Extension, EndsIn, NoKey}
+
+# One pattern line: its glob, whether `!` re-includes, whether it matches
+# directories only.
+type Rule = { pattern: Glob, whitelist: Bool, only_dir: Bool }
+
+# A rule and its line order: of the rules that match, the latest decides.
+type Indexed = { index: Int, rule: Rule }
+
+#[doc("The rules of one ignore file, matched relative to the directory `root`: those one string decides, by that string, and the rest last first.")]
+pub type Matcher = {
+  priv root: String,
+  priv whole: Map[String, [Indexed]],
+  priv last: Map[String, [Indexed]],
+  priv extensions: Map[String, [Indexed]],
+  priv suffixes: Map[String, [Indexed]],
+  priv others: [Indexed],
+  priv general: Bool,
+  priv size: Int
+}
+
+#[doc("What an ignore file says about a path.")]
+pub type Verdict = Ignored | Whitelisted | Unmatched
+
+fn empty(root: String) : Matcher =
+  Matcher {
+    root: root,
+    whole: %{},
+    last: %{},
+    extensions: %{},
+    suffixes: %{},
+    others: [],
+    general: false,
+    size: 0
+  }
+
+fn file_under(m: Map[String, [Indexed]], k: String, i: Indexed) : Map[String, [Indexed]] =
+  map.put(m, k, [i, ...map.get(m, k) ?? []])
+
+fn add(m: Matcher, i: Indexed) : Matcher = match glob.key(i.rule.pattern) {
+  WholePath(k) -> Matcher { ...m, whole: file_under(m.whole, k, i) }
+  LastComponent(k) -> Matcher { ...m, last: file_under(m.last, k, i) }
+  Extension(k) -> Matcher { ...m, extensions: file_under(m.extensions, k, i) }
+  EndsIn(k) -> Matcher { ...m, suffixes: file_under(m.suffixes, k, i) }
+  NoKey ->
+    Matcher {
+      ...m,
+      others: [i, ...m.others],
+      general: m.general or glob.is_general(i.rule.pattern)
+    }
+}
+
+fn has_doublestar_prefix(p: String) : Bool = string.starts_with(p, "**/") or p == "**"
+
+fn drop_first(s: String) : String = string.slice(s, 1, string.byte_length(s) - 1)
+
+fn drop_last(s: String) : String = string.slice(s, 0, string.byte_length(s) - 1)
+
+# The line with its markers taken off: the glob text, whether it is
+# anchored, whether it re-includes.
+fn markers(line: String) : (String, Bool, Bool) =
+  if string.starts_with(line, "\\!") or string.starts_with(line, "\\#") {
+    let rest = drop_first(line)
+    (rest, string.starts_with(rest, "/"), false)
+  } else {
+    let whitelist = string.starts_with(line, "!")
+    let rest = if whitelist { drop_first(line) } else { line }
+    if string.starts_with(rest, "/") {
+      (drop_first(rest), true, whitelist)
+    } else {
+      (rest, false, whitelist)
+    }
+  }
+
+# A trailing slash makes the rule match directories only; an escaped one
+# keeps no backslash.
+fn directory_only(text: String) : (String, Bool) =
+  if not string.ends_with(text, "/") {
+    (text, false)
+  } else {
+    let body = drop_last(text)
+    (if string.ends_with(body, "\\") { drop_last(body) } else { body }, true)
+  }
+
+# A pattern with no slash matches at any depth; a trailing `/**` matches
+# inside its directory only.
+fn glob_text(body: String, anchored: Bool) : String {
+  let floating =
+    (not anchored) and (not string.contains(body, "/")) and (not has_doublestar_prefix(body))
+  let anywhere = if floating { "**/" ++ body } else { body }
+  if string.ends_with(anywhere, "/**") { anywhere ++ "/*" } else { anywhere }
+}
+
+fn rule_of(raw: String) : Option[Rule] {
+  let line = if string.ends_with(raw, "\\ ") { raw } else { string.trim_right(raw) }
+  if line == "" or string.starts_with(line, "#") {
+    None
+  } else {
+    let (text, anchored, whitelist) = markers(line)
+    let (body, only_dir) = directory_only(text)
+    ok(glob.compile_ignore_line(glob_text(body, anchored)))
+      |> option.map(g => Rule { pattern: g, whitelist: whitelist, only_dir: only_dir })
+  }
+}
+
+fn rules_of(line: String) : [Rule] = match rule_of(line) {
+  Some(r) -> [r]
+  None -> []
+}
+
+#[doc("""
+Reads the text of an ignore file that sits in the directory `root`.
+A line whose glob does not compile is skipped.
+""")]
+pub fn parse(root: String, text: String) : Matcher {
+  let rules = string.lines(text) || (l => rules_of(string.drop_suffix(l, "\r") ?? l))
+  let indexed = list.map_indexed(rules, (i, r) => Indexed { index: i, rule: r })
+  Matcher { ...indexed |> list.foldl(empty(root), add), size: list.length(rules) }
+}
+
+fn strip_dot_slash(p: String) : String = string.drop_prefix(p, "./") ?? p
+
+# The path relative to the matcher's directory.
+fn relative(m: Matcher, path: String) : String {
+  let p = strip_dot_slash(path)
+  let root = strip_dot_slash(m.root)
+  if m.root == "." or root == "" or (not string.contains(p, "/")) {
+    p
+  } else {
+    match string.drop_prefix(p, root) {
+      Some(rest) -> string.drop_prefix(rest, "/") ?? rest
+      None -> p
+    }
+  }
+}
+
+fn applies(i: Indexed, is_dir: Bool) : Bool = (not i.rule.only_dir) or is_dir
+
+fn latest(found: Option[Indexed], candidates: [Indexed], is_dir: Bool) : Option[Indexed] =
+  candidates
+    |> list.foldl(
+      found,
+      (best, c) => match best {
+        Some(b) if b.index > c.index -> best
+        _ -> if applies(c, is_dir) { Some(c) } else { best }
+      }
+    )
+
+fn keyed(m: Map[String, [Indexed]], k: Option[String]) : [Indexed] = match k {
+  Some(key) -> map.get(m, key) ?? []
+  None -> []
+}
+
+# The latest rule that matches: the keyed ones match by their key, the
+# suffixes filed under the path's extension are tested, and the others,
+# last first, are tested until one matches.
+fn decide(m: Matcher, path: String, is_dir: Bool) : Option[Indexed] {
+  let s = glob.subject(path, m.general)
+  let ext = glob.extension(s.name)
+  let other =
+    list.find(m.others, i => applies(i, is_dir) and glob.matches_subject(i.rule.pattern, s))
+  let suffixed = keyed(m.suffixes, ext) |? (i => glob.matches_subject(i.rule.pattern, s))
+  let from_keys = keyed(m.whole, Some(path))
+    ++ keyed(m.last, Some(s.name))
+    ++ keyed(m.extensions, ext)
+    ++ suffixed
+  latest(other, from_keys, is_dir)
+}
+
+#[doc("Whether a matcher has no rules.")]
+pub fn is_empty(m: Matcher) : Bool = m.size == 0
+
+#[doc("The verdict of the last rule that matches `path`; directory-only rules match only directories.")]
+pub fn matched(m: Matcher, path: String, is_dir: Bool) : Verdict =
+  if m.size == 0 {
+    Unmatched
+  } else {
+    match decide(m, relative(m, path), is_dir) {
+      None -> Unmatched
+      Some(i) -> if i.rule.whitelist { Whitelisted } else { Ignored }
+    }
+  }
+
+# The ignore files of one directory.
+type Frame = {
+  dir: String,
+  # A directory above the walk's root, matched against absolute paths.
+  above: Bool,
+  ignore: Matcher,
+  git: Matcher,
+  exclude: Matcher,
+  has_git: Bool
+}
+
+fn read_matcher(dir: String, name: String) : Matcher / File =
+  match file.read(path.join(dir, name)) {
+    Ok(text) -> parse(dir, text)
+    Err(_) -> empty(dir)
+  }
+
+# The ignore files a directory holds.
+fn frame(dir: String, above: Bool) : Frame / File {
+  let has_git = file.exists(path.join(dir, ".git")) or file.exists(path.join(dir, ".jj"))
+  Frame {
+    dir: dir,
+    above: above,
+    ignore: read_matcher(dir, ".ignore"),
+    git: read_matcher(dir, ".gitignore"),
+    exclude: if has_git { read_matcher(dir, ".git/info/exclude") } else { empty(dir) },
+    has_git: has_git
+  }
+}
+
+# What a walk carries to judge a path: the frames from the path's
+# directory up, deepest first, the global excludes, and where the root
+# sits in absolute terms.
+type Stack = { frames: [Frame], global: Matcher, root: String, absolute_root: String }
+
+type Seen = { ignore: Verdict, git: Verdict, exclude: Verdict, saw_git: Bool }
+
+fn first(v: Verdict, m: Matcher, p: String, is_dir: Bool) : Verdict =
+  if v == Unmatched { matched(m, p, is_dir) } else { v }
+
+fn absolute_of(s: Stack, p: String) : String {
+  let base = if s.root == "." { "./" } else { s.root ++ "/" }
+  match string.drop_prefix(p, base) {
+    Some(rest) -> path.join(s.absolute_root, rest)
+    None -> if p == s.root { s.absolute_root } else { p }
+  }
+}
+
+fn has_rules(f: Frame) : Bool =
+  not (is_empty(f.ignore) and is_empty(f.git) and is_empty(f.exclude))
+
+fn step(s: Stack, p: String, is_dir: Bool, any_git: Bool, seen: Seen, f: Frame) : Seen {
+  let candidate = if f.above and has_rules(f) { absolute_of(s, p) } else { p }
+  let git_open = any_git and (not seen.saw_git)
+  Seen {
+    ignore: first(seen.ignore, f.ignore, candidate, is_dir),
+    git: if git_open { first(seen.git, f.git, candidate, is_dir) } else { seen.git },
+    exclude: if git_open {
+      first(seen.exclude, f.exclude, candidate, is_dir)
+    } else {
+      seen.exclude
+    },
+    saw_git: seen.saw_git or f.has_git
+  }
+}
+
+# Whether the ignore files hide a path.
+fn ignored(s: Stack, p: String, is_dir: Bool) : Bool {
+  let any_git = list.any(s.frames, f => f.has_git)
+  let start = Seen { ignore: Unmatched, git: Unmatched, exclude: Unmatched, saw_git: false }
+  let seen = s.frames |> list.foldl(start, (acc, f) => step(s, p, is_dir, any_git, acc, f))
+  let global = if any_git { matched(s.global, p, is_dir) } else { Unmatched }
+  let verdict = [seen.ignore, seen.git, seen.exclude, global] |> list.find(v => v != Unmatched)
+  verdict == Some(Ignored)
+}
+
+# The stack below a directory: its frame on top.
+fn enter(s: Stack, dir: String) : Stack / File =
+  Stack { ...s, frames: [frame(dir, false), ...s.frames] }
+
+fn unquote(v: String) : String =
+  if string.starts_with(v, "\"") and string.ends_with(v, "\"") and string.byte_length(v) >= 2 {
+    string.slice(v, 1, string.byte_length(v) - 2)
+  } else {
+    v
+  }
+
+fn expand_home(v: String, home: String) : String = match string.drop_prefix(v, "~/") {
+  Some(rest) -> path.join(home, rest)
+  None -> v
+}
+
+type GitConfigLine = { in_core: Bool, found: Option[String] }
+
+fn config_line(acc: GitConfigLine, raw: String) : GitConfigLine {
+  let line = string.trim(raw)
+  if string.starts_with(line, "[") {
+    GitConfigLine { ...acc, in_core: string.to_lower(line) == "[core]" }
+  } else if acc.in_core {
+    match string.split_once(line, "=") {
+      Some(kv) if string.to_lower(string.trim(kv.fst)) == "excludesfile" ->
+        GitConfigLine { ...acc, found: Some(unquote(string.trim(kv.snd))) }
+      _ -> acc
+    }
+  } else {
+    acc
+  }
+}
+
+fn excludes_file_in(config: String) : Option[String] / File = match file.read(config) {
+  Ok(text) -> (string.lines(text)
+    |> list.foldl(GitConfigLine { in_core: false, found: None }, config_line)).found
+  Err(_) -> None
+}
+
+fn xdg_config(home: String) : String / Env = match env.get("XDG_CONFIG_HOME") {
+  Some(x) if x != "" -> x
+  _ -> path.join(home, ".config")
+}
+
+# The global excludes file: `core.excludesFile` from the user's git
+# configuration, else `git/ignore` under the XDG configuration directory.
+fn global_path() : Option[String] / File + Env {
+  let home = env.get("HOME") ?? ""
+  let configured = match env.get("GIT_CONFIG_GLOBAL") {
+    Some(g) -> excludes_file_in(g)
+    None -> match excludes_file_in(path.join(home, ".gitconfig")) {
+      Some(found) -> Some(found)
+      None -> excludes_file_in(path.join(xdg_config(home), "git/config"))
+    }
+  }
+  match configured {
+    Some(p) -> Some(expand_home(p, home))
+    None -> if home == "" { None } else { Some(path.join(xdg_config(home), "git/ignore")) }
+  }
+}
+
+fn global_matcher() : Matcher / File + Env = match global_path() {
+  Some(p) -> match file.read(p) {
+    Ok(text) -> parse("", text)
+    Err(_) -> empty("")
+  }
+  None -> empty("")
+}
+
+fn up_of(p: String) : String {
+  let d = path.dirname(p)
+  if d == "" and string.starts_with(p, "/") and p != "/" { "/" } else { d }
+}
+
+# The directories above `p`, deepest first.
+fn ancestors(p: String, acc: [String]) : [String] {
+  let up = up_of(p)
+  if up == "" or up == p { list.reverse(acc) } else { ancestors(up, [up, ...acc]) }
+}
+
+# The stack at a walk's root: the root's own frame, then the frames of
+# the directories above it, deepest first.
+fn at_root(root: String, absolute_root: String) : Stack / File + Env {
+  let above = ancestors(absolute_root, []) | (d => frame(d, true))
+  Stack {
+    frames: [frame(root, false), ...above],
+    global: global_matcher(),
+    root: root,
+    absolute_root: absolute_root
+  }
+}
+
+fn strip_trailing_slash(p: String) : String =
+  if p != "/" and string.ends_with(p, "/") {
+    strip_trailing_slash(string.slice(p, 0, string.byte_length(p) - 1))
+  } else {
+    p
+  }
+
+# The root's real path, through symbolic links and `..`, where ancestors'
+# ignore files are looked up.
+fn real(root: String) : String / File = ok(file.canonicalize(root)) ?? root
+
+#[doc("A directory a walk could not read, and the reason the OS gave.")]
+pub type Unreadable = { dir: String, reason: String }
+
+#[doc("What a walk found: the files it keeps and the directories it could not read, in walk order.")]
+pub type Walked = { files: [String], errors: [Unreadable] }
+
+type Walk = { skip: (String, Bool) -> Bool }
+
+fn by_name(a: DirEntry, b: DirEntry) : Int =
+  if a.name < b.name { -1 } else if b.name < a.name { 1 } else { 0 }
+
+fn visit_dir(w: Walk, d: String, stack: Stack, acc: Walked) : Walked / File =
+  match dir.list_entries(d) {
+    Err(e) -> {
+      let reason = string.drop_prefix(e, d ++ ": ") ?? e
+      Walked { ...acc, errors: [Unreadable { dir: d, reason: reason }, ...acc.errors] }
+    }
+    Ok(entries) ->
+      list.sort_by(entries, by_name) |> list.foldl(acc, (a, e) => visit(w, d, stack, a, e))
+  }
+
+# Symbolic links and special files are never read.
+fn visit(w: Walk, parent: String, stack: Stack, acc: Walked, e: DirEntry) : Walked / File {
+  let p = parent ++ "/" ++ e.name
+  match e.kind {
+    EntryDir ->
+      if e.name == ".git" or ignored(stack, p, true) or w.skip(p, true) {
+        acc
+      } else {
+        visit_dir(w, p, enter(stack, p), acc)
+      }
+    EntryFile ->
+      if e.name == ".git" or ignored(stack, p, false) or w.skip(p, false) {
+        acc
+      } else {
+        Walked { ...acc, files: [p, ...acc.files] }
+      }
+    _ -> acc
+  }
+}
+
+fn is_file(p: String) : Bool / File = match file.metadata(p) {
+  Ok(m) -> m.is_file
+  Err(_) -> false
+}
+
+#[doc("""
+The files under `root` that its ignore files do not hide: depth first,
+each directory's entries sorted by name, `.git` left out, symbolic links
+not followed. An ignored directory is never read. `root` itself is never
+filtered, and a `root` that is a file is the one file found.
+""")]
+pub fn walk(root: String) : Walked / File + Env = walk_skipping(root, (p, d) => false)
+
+#[doc("""
+`walk` that also leaves out the paths `skip` accepts. It receives each
+path and whether it is a directory; a skipped directory is never read.
+""")]
+pub fn walk_skipping(root: String, skip: (String, Bool) -> Bool) : Walked / File + Env {
+  let r = strip_trailing_slash(root)
+  if is_file(r) {
+    Walked { files: [r], errors: [] }
+  } else {
+    let start = at_root(r, real(r))
+    let found = visit_dir(Walk { skip: skip }, r, start, Walked { files: [], errors: [] })
+    Walked { files: list.reverse(found.files), errors: list.reverse(found.errors) }
+  }
+}
