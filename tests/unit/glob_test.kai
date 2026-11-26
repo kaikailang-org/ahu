@@ -1,0 +1,125 @@
+import ahu.glob
+
+fn m(pattern: String, path: String) : Bool = match glob.compile(pattern, false) {
+  Ok(g) -> glob.matches(g, path)
+  Err(_) -> false
+}
+
+fn ms(pattern: String, path: String) : Bool = match glob.compile(pattern, true) {
+  Ok(g) -> glob.matches(g, path)
+  Err(_) -> false
+}
+
+fn err(pattern: String) : String = match glob.compile(pattern, false) {
+  Ok(_) -> ""
+  Err(e) -> e
+}
+
+test "a star crosses separators unless they are literal" {
+  assert m("*.min.js", "a/b/c.min.js")
+  assert not ms("*.min.js", "a/b/c.min.js")
+  assert ms("*.js", "c.js")
+}
+
+test "a double star spans directories" {
+  assert m("vendor/**", "vendor/a/b.rs")
+  assert not m("vendor/**", "vendor")
+  assert m("**/x.rs", "x.rs")
+  assert m("**/x.rs", "a/b/x.rs")
+  assert ms("a/**/b", "a/b")
+  assert ms("a/**/b", "a/x/y/b")
+  assert not ms("a/**/b", "a/xb")
+}
+
+test "classes, alternatives and escapes" {
+  assert m("[a-c].rs", "b.rs")
+  assert not m("[!a-c].rs", "b.rs")
+  assert m("*.{js,ts}", "x.ts")
+  assert m("*.{js,{t,r}s}", "x.rs")
+  assert not m("*.{js,ts}", "x.rs")
+  assert m("\\*.rs", "*.rs")
+  assert not m("\\*.rs", "a.rs")
+}
+
+test "invalid globs say what is wrong" {
+  assert err("[") == "error parsing glob '[': unclosed character class; missing ']'"
+  assert err("{a,b")
+    == "error parsing glob '{a,b': unclosed alternate group; missing '}' (maybe escape '{' with '[{]'?)"
+  assert err("a\\") == "error parsing glob 'a\\': dangling '\\'"
+  assert err("[z-a]") == "error parsing glob '[z-a]': invalid range; 'z' > 'a'"
+  assert err("a}")
+    == "error parsing glob 'a}': unopened alternate group; missing '{' (maybe escape '}' with '[}]'?)"
+}
+
+test "a double star right after another spans nothing more" {
+  assert ms("**/**/*", "a")
+  assert ms("**/**/*", "a/b/c")
+  assert ms("a/**/**/b", "a/x/y/b")
+}
+
+test "a lone double star matches every path" {
+  assert ms("**", "a")
+  assert ms("**", "a/b/c")
+}
+
+test "literal, base name, suffix and prefix patterns" {
+  assert ms("Cargo.lock", "Cargo.lock")
+  assert not ms("Cargo.lock", "a/Cargo.lock")
+  assert ms("**/node_modules", "node_modules")
+  assert ms("**/node_modules", "a/b/node_modules")
+  assert not ms("**/node_modules", "a/xnode_modules")
+  assert ms("**/*.log", "x.log")
+  assert ms("**/*.log", "a/b/x.log")
+  assert not ms("**/*.log", "a/x.logs")
+  assert ms("src/**", "src/a/b.rs")
+  assert not ms("src/**", "src")
+  assert not ms("src/**", "srcx/a")
+  assert ms("src/**/*", "src/a")
+  assert ms("src/**/*", "src/a/b")
+  assert not ms("src/**/*", "srcx/a")
+  assert m("*.min.js", "a/b.min.js")
+}
+
+test "a pattern within the last component" {
+  assert ms("**/[Dd]ebug", "a/Debug")
+  assert ms("**/[Dd]ebug", "debug")
+  assert not ms("**/[Dd]ebug", "a/Debug/x")
+  assert ms("**/reviews*", "a/reviews-2024")
+  assert not ms("**/reviews*", "reviews/x")
+}
+
+test "the literal a pattern requires rejects a path without it" {
+  assert ms("**/[Tt]est[Rr]esult*", "a/TestResults")
+  assert not ms("**/[Tt]est[Rr]esult*", "a/TestOutput")
+  assert ms("**/packages/*", "a/packages/b")
+  assert not ms("**/packages/*", "a/package/b")
+  assert ms("DocProject/Help/*.HxT", "DocProject/Help/a.HxT")
+  assert not ms("DocProject/Help/*.HxT", "DocProject/a.HxT")
+}
+
+fn compiled(patterns: [String]) : [glob.Glob] = match patterns {
+  [] -> []
+  [p, ...rest] -> match glob.compile(p, true) {
+    Ok(g) -> [g, ...compiled(rest)]
+    Err(_) -> compiled(rest)
+  }
+}
+
+test "a set answers with the positions of the globs that match" {
+  let s = glob.set(compiled(["**/*.log", "src/**", "a?c", "**/x.log", "Makefile", "**/*_i.c"]))
+  assert glob.matching(s, "src/x.log") == [0, 1, 3]
+  assert glob.matching(s, "abc") == [2]
+  assert glob.matching(s, "Makefile") == [4]
+  assert glob.matching(s, "a/b_i.c") == [5]
+  assert glob.matching(s, "a/b.c") == []
+}
+
+test "a set says whether any glob matches" {
+  let s = glob.set(compiled(["**/*.log", "src/*.[ch]", "**/target", "*_i.c"]))
+  assert glob.is_match(s, "a/x.log")
+  assert glob.is_match(s, "src/a.c")
+  assert glob.is_match(s, "a/target")
+  assert glob.is_match(s, "b_i.c")
+  assert not glob.is_match(s, "src/a/b.c")
+  assert not glob.is_match(glob.set([]), "a")
+}

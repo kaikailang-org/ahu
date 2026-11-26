@@ -1,0 +1,19 @@
+the repository
+  build/ignore_walk_tree/repo/.gitignore
+  build/ignore_walk_tree/repo/.ignore
+  build/ignore_walk_tree/repo/README.md
+  build/ignore_walk_tree/repo/kept.log
+  build/ignore_walk_tree/repo/src/.gitignore
+  build/ignore_walk_tree/repo/src/debug.log
+  build/ignore_walk_tree/repo/src/main.kai
+from a directory below it
+  build/ignore_walk_tree/repo/src/.gitignore
+  build/ignore_walk_tree/repo/src/debug.log
+  build/ignore_walk_tree/repo/src/main.kai
+skipping markdown and src
+  build/ignore_walk_tree/repo/.gitignore
+  build/ignore_walk_tree/repo/.ignore
+  build/ignore_walk_tree/repo/kept.log
+a file as root
+  build/ignore_walk_tree/repo/build.log
+absent root: 1 unreadable

@@ -224,6 +224,12 @@ adapter. Spec: `docs/jobs.md`, `docs/jobs-design.md`.
 - **Supervised workers**, likely on the Pool helper below. The
   durable SQLite adapter lives with Manutara, not in ahu.
 
+### Files (state: **shipped**, ahu/glob.kai + ahu/ignore.kai)
+
+Globs and glob sets with `globset`'s semantics, and `.gitignore` /
+`.ignore` matching with a directory walk that prunes what they hide.
+See `docs/glob.md` and `docs/ignore.md`.
+
 ### Reference applications (state: **partial**)
 
 Shipped in `examples/`: `demo` (the full stack end-to-end — a

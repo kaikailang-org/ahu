@@ -1,0 +1,82 @@
+# ahu.ignore — the walk over a real tree: precedence between ignore
+# files, pruning, `.git`, ancestors, the global excludes file and `skip`.
+
+import ahu.ignore
+import fs.dir
+import fs.file
+import os.env
+
+fn root() : String = "build/ignore_walk_tree"
+
+fn make_dir(p: String) : Unit / File = match dir.create_dir(p) {
+  _ -> ()
+}
+
+fn put(p: String, text: String) : Unit / File = match file.write(p, text) {
+  _ -> ()
+}
+
+fn plant() : Unit / File {
+  list.each(
+    [
+      "build",
+      root(),
+      root() ++ "/home",
+      root() ++ "/repo",
+      root() ++ "/repo/.git",
+      root() ++ "/repo/.git/info",
+      root() ++ "/repo/src",
+      root() ++ "/repo/src/gen",
+      root() ++ "/repo/target"
+    ],
+    make_dir
+  )
+  put(root() ++ "/home/excludes", "*.swp\n")
+  put(root() ++ "/home/.gitconfig", "[core]\n  excludesFile = ~/excludes\n")
+  let repo = root() ++ "/repo"
+  put(repo ++ "/.git/info/exclude", "local.txt\n")
+  put(repo ++ "/.gitignore", "target/\n*.log\n")
+  put(repo ++ "/.ignore", "!kept.log\n")
+  put(repo ++ "/src/.gitignore", "gen/\n!debug.log\n")
+  put(repo ++ "/README.md", "")
+  put(repo ++ "/a.swp", "")
+  put(repo ++ "/build.log", "")
+  put(repo ++ "/kept.log", "")
+  put(repo ++ "/local.txt", "")
+  put(repo ++ "/target/out.bin", "")
+  put(repo ++ "/src/debug.log", "")
+  put(repo ++ "/src/main.kai", "")
+  put(repo ++ "/src/trace.log", "")
+  put(repo ++ "/src/gen/code.kai", "")
+}
+
+fn show(label: String, w: ignore.Walked) : Unit / Stdout {
+  Stdout.print(label)
+  list.each(w.files, f => Stdout.print("  " ++ f))
+  list.each(w.errors, e => Stdout.print("  unreadable " ++ e.dir))
+}
+
+fn use_home(home: String) : Unit / Env {
+  let _ = env.set("HOME", home)
+  let _ = env.unset("XDG_CONFIG_HOME")
+  let _ = env.unset("GIT_CONFIG_GLOBAL")
+  ()
+}
+
+fn main() : Int / Stdout + File + Env {
+  plant()
+  use_home(root() ++ "/home")
+  show("the repository", ignore.walk(root() ++ "/repo/"))
+  show("from a directory below it", ignore.walk(root() ++ "/repo/src"))
+  show(
+    "skipping markdown and src",
+    ignore.walk_skipping(
+      root() ++ "/repo",
+      (p, is_dir) => string.ends_with(p, ".md") or (is_dir and string.ends_with(p, "/src"))
+    )
+  )
+  show("a file as root", ignore.walk(root() ++ "/repo/build.log"))
+  let missing = ignore.walk(root() ++ "/absent")
+  Stdout.print("absent root: #{int_to_string(list.length(missing.errors))} unreadable")
+  0
+}

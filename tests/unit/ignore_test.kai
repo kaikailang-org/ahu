@@ -1,0 +1,69 @@
+import ahu.ignore
+import ahu.ignore.{Ignored, Whitelisted, Unmatched}
+
+fn v(text: String, path: String, is_dir: Bool) : ignore.Verdict =
+  ignore.matched(ignore.parse("./repo", text), path, is_dir)
+
+test "a pattern without a slash matches at any depth" {
+  assert v("*.log\n", "./repo/a/b/x.log", false) == Ignored
+  assert v("target\n", "./repo/sub/target", true) == Ignored
+}
+
+test "a pattern with a slash is anchored to its file's directory" {
+  assert v("/build\n", "./repo/build", true) == Ignored
+  assert v("/build\n", "./repo/a/build", true) == Unmatched
+  assert v("docs/*.md\n", "./repo/docs/a.md", false) == Ignored
+  assert v("docs/*.md\n", "./repo/docs/x/a.md", false) == Unmatched
+}
+
+test "a trailing slash matches directories only" {
+  assert v("out/\n", "./repo/out", true) == Ignored
+  assert v("out/\n", "./repo/out", false) == Unmatched
+}
+
+test "the last matching line decides, and a bang re-includes" {
+  assert v("*.log\n!keep.log\n", "./repo/keep.log", false) == Whitelisted
+  assert v("!keep.log\n*.log\n", "./repo/keep.log", false) == Ignored
+}
+
+test "comments, blanks and escapes" {
+  assert v("# note\n\n\\#hash\n", "./repo/#hash", false) == Ignored
+  assert v("# note\n", "./repo/# note", false) == Unmatched
+}
+
+test "a trailing double star matches inside a directory, not the directory" {
+  assert v("gen/**\n", "./repo/gen/a.rs", false) == Ignored
+  assert v("gen/**\n", "./repo/gen", true) == Unmatched
+}
+
+test "ignore everything, then re-include every directory" {
+  let text = "*\n!**/\n!*.*\n"
+  assert v(text, "./repo/a/b", true) == Whitelisted
+  assert v(text, "./repo/a/b/x.py", false) == Whitelisted
+  assert v(text, "./repo/a/b/noext", false) == Ignored
+}
+
+test "the latest line decides across names, extensions and general patterns" {
+  assert v("*.log\nde[b]ug*\n", "./repo/debug.log", false) == Ignored
+  assert v("de[b]ug*\n!*.log\n", "./repo/debug.log", false) == Whitelisted
+  assert v("!*.log\nde[b]ug*\n", "./repo/debug.log", false) == Ignored
+  assert v("!debug.log\n*.log\n", "./repo/a/debug.log", false) == Ignored
+  assert v("*.log\n!debug.log\n", "./repo/a/debug.log", false) == Whitelisted
+  assert v("logs/\n!*.log\n", "./repo/logs", true) == Ignored
+}
+
+test "a suffix with a dot is tested only on paths with its extension" {
+  assert v("*_i.c\n", "./repo/a/b_i.c", false) == Ignored
+  assert v("*_i.c\n", "./repo/a/b_i.cc", false) == Unmatched
+  assert v("*_i.c\n", "./repo/a/b.c", false) == Unmatched
+  assert v("*.VC.db\n", "./repo/x.VC.db", false) == Ignored
+  assert v("*.VC.db\n", "./repo/x.db", false) == Unmatched
+  assert v("*.VC.db\n!x.*\n", "./repo/x.VC.db", false) == Whitelisted
+  assert v("!x.*\n*.VC.db\n", "./repo/x.VC.db", false) == Ignored
+}
+
+test "an unclosed class is a literal, and a line that does not compile is skipped" {
+  assert v("a[b\n", "./repo/a[b", false) == Ignored
+  assert v("a}\nkeep\n", "./repo/a}", false) == Unmatched
+  assert v("a}\nkeep\n", "./repo/keep", false) == Ignored
+}

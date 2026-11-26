@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+### Added
+
+- **`ahu.glob`** compiles globs and sets of globs with `globset`'s
+  semantics and answers which match a path. See `docs/glob.md`.
+- **`ahu.ignore`** reads `.gitignore` and `.ignore` files and walks a
+  directory applying them, never reading what they hide. See
+  `docs/ignore.md`.
+
 ## [0.6.0] - 2026-11-26
 
 ### Added
