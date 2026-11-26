@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/) once 1.0.0 ships.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
 ### Added
 
 - **`cli.value_delimiter`** splits each occurrence of a repeatable text
